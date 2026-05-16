@@ -11,7 +11,7 @@ import { useEscape } from '../../lib/useEscape';
 import { db } from '../../db/db';
 import { deleteSeries, updateSeriesTitle, setCoverBlobOverride } from '../../db/repos/series.repo';
 import { updateChapterTitle } from '../../db/repos/chapters.repo';
-import { upsertProgress, getProgress } from '../../db/repos/progress.repo';
+import { upsertProgress, getProgress, clearSeriesProgress } from '../../db/repos/progress.repo';
 import { addBlob } from '../../db/repos/blobs.repo';
 import { useSeriesProgress } from '../library/useSeriesProgress';
 import { formatRelativeTime } from '../../lib/formatRelativeTime';
@@ -33,6 +33,8 @@ export function SeriesScreen({ seriesId }: SeriesScreenProps) {
   const [currentChapterId, setCurrentChapterId] = useState<string | null>(null);
   const [manuallyReadIds, setManuallyReadIds] = useState<Set<string>>(new Set());
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmClearProgress, setConfirmClearProgress] = useState(false);
+  const loadLibrary = useLibraryStore((s) => s.loadLibrary);
 
   // Overflow sheet state
   const [overflowTarget, setOverflowTarget] = useState<OverflowTarget | null>(null);
@@ -104,10 +106,11 @@ export function SeriesScreen({ seriesId }: SeriesScreenProps) {
 
   const handleEscape = useCallback(() => {
     if (confirmDelete) { setConfirmDelete(false); return; }
+    if (confirmClearProgress) { setConfirmClearProgress(false); return; }
     if (editingTitle) { setEditingTitle(null); return; }
     if (coverUrlSheet) { setCoverUrlSheet(false); setCoverUrlStatus('idle'); return; }
     if (overflowTarget) { setOverflowTarget(null); }
-  }, [confirmDelete, editingTitle, coverUrlSheet, overflowTarget]);
+  }, [confirmDelete, confirmClearProgress, editingTitle, coverUrlSheet, overflowTarget]);
 
   useEscape(handleEscape);
 
@@ -400,6 +403,21 @@ export function SeriesScreen({ seriesId }: SeriesScreenProps) {
             >
               Edit cover
             </button>
+            <button
+              className="overflow-action-btn type-body"
+              disabled={seriesProgress.readChapters === 0}
+              style={{
+                color: seriesProgress.readChapters === 0 ? 'var(--color-text-muted)' : 'var(--color-gold)',
+                cursor: seriesProgress.readChapters === 0 ? 'not-allowed' : 'pointer',
+              }}
+              onClick={() => {
+                if (seriesProgress.readChapters === 0) return;
+                setOverflowTarget(null);
+                setConfirmClearProgress(true);
+              }}
+            >
+              Clear read chapters
+            </button>
             <div className="confirm-sheet__actions">
               <Button variant="ghost" onClick={() => setOverflowTarget(null)}>
                 Close
@@ -529,6 +547,36 @@ export function SeriesScreen({ seriesId }: SeriesScreenProps) {
             <div className="confirm-sheet__actions">
               <Button variant="ghost" onClick={() => setEditingTitle(null)}>Cancel</Button>
               <Button onClick={() => void handleSaveTitle()}>Save</Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {confirmClearProgress && (
+        <div className="confirm-sheet" role="dialog" aria-modal="true">
+          <div className="confirm-sheet__inner">
+            <div className="type-section-label" style={{ color: 'var(--color-gold)' }}>
+              Clear read chapters
+            </div>
+            <div className="type-body">
+              Reset progress for {currentSeries.title}? This marks all {seriesProgress.readChapters} read chapter{seriesProgress.readChapters === 1 ? '' : 's'} as unread. Chapters and bookmarks are kept.
+            </div>
+            <div className="confirm-sheet__actions">
+              <Button variant="ghost" onClick={() => setConfirmClearProgress(false)}>
+                Cancel
+              </Button>
+              <Button
+                onClick={async () => {
+                  await clearSeriesProgress(profileId, seriesId);
+                  setCurrentChapterId(null);
+                  setManuallyReadIds(new Set());
+                  setConfirmClearProgress(false);
+                  await loadSeries(seriesId);
+                  await loadLibrary();
+                }}
+              >
+                Proceed
+              </Button>
             </div>
           </div>
         </div>

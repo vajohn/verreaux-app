@@ -3,6 +3,7 @@ import { useLibraryStore } from './library.store';
 import { getAllProfiles, createProfile, renameProfile, deleteProfile } from '../../db/repos/profiles.repo';
 import { exportLibrary } from './exportLibrary';
 import { useEscape } from '../../lib/useEscape';
+import { ClearProgressSheet } from './ClearProgressSheet';
 import type { Profile, AvatarColor, Theme, LibrarySort } from '../../db/types';
 import './SettingsPanel.css';
 
@@ -63,13 +64,15 @@ export function SettingsPanel() {
   const [renameTarget, setRenameTarget] = useState<Profile | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const [deleteTarget, setDeleteTarget] = useState<Profile | null>(null);
+  const [clearProgressOpen, setClearProgressOpen] = useState(false);
 
   const handleEscape = useCallback(() => {
+    if (clearProgressOpen) { setClearProgressOpen(false); return; }
     if (deleteTarget) { setDeleteTarget(null); return; }
     if (renameTarget) { setRenameTarget(null); return; }
     if (newProfileSheet) { setNewProfileSheet(false); return; }
     if (profilesOpen) { setProfilesOpen(false); }
-  }, [deleteTarget, renameTarget, newProfileSheet, profilesOpen]);
+  }, [clearProgressOpen, deleteTarget, renameTarget, newProfileSheet, profilesOpen]);
 
   useEscape(handleEscape);
 
@@ -223,8 +226,29 @@ export function SettingsPanel() {
         </button>
       </div>
 
+      {/* Reading Progress */}
+      <div className="type-section-label settings-section">Reading Progress</div>
+      <div className="settings-row">
+        <div style={{ flex: 1 }}>
+          <span className="type-body">Clear Read Chapters</span>
+          <div className="type-nav-label" style={{ color: 'var(--color-text-muted)', marginTop: 2 }}>
+            Reset reading progress across selected series. Chapters and bookmarks are kept.
+          </div>
+        </div>
+        <button
+          className="settings-toggle settings-toggle--gold type-button"
+          onClick={() => setClearProgressOpen(true)}
+        >
+          Clear…
+        </button>
+      </div>
+
       <div className="type-section-label settings-section">About</div>
       <div className="type-body">Verreaux PWA — offline manhwa reader.</div>
+
+      {clearProgressOpen && (
+        <ClearProgressSheet onClose={() => setClearProgressOpen(false)} />
+      )}
 
       {/* Profiles Sheet */}
       {profilesOpen && (

@@ -48,6 +48,22 @@ export async function deleteProgress(
     .delete();
 }
 
+export async function clearSeriesProgress(
+  profileId: string,
+  seriesId: string,
+): Promise<void> {
+  await db.transaction('rw', [db.readingProgress, db.series], async () => {
+    await db.readingProgress
+      .where('[profileId+seriesId]')
+      .equals([profileId, seriesId])
+      .delete();
+    await db.series.update(seriesId, {
+      lastReadChapterId: null,
+      lastReadAt: null,
+    });
+  });
+}
+
 export async function setManuallyMarked(
   profileId: string,
   seriesId: string,
