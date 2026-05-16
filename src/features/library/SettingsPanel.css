@@ -1,0 +1,124 @@
+.settings-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px 0;
+}
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 14px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  flex-wrap: wrap;
+}
+
+.settings-toggle {
+  padding: 8px 14px;
+  background: transparent;
+  border: 1px solid var(--color-ash);
+  color: var(--color-text-muted);
+  border-radius: 0;
+  cursor: pointer;
+}
+
+.settings-toggle--on {
+  border-color: var(--color-gold);
+  color: var(--color-gold);
+}
+
+.settings-toggle--gold {
+  border-color: var(--color-gold);
+  color: var(--color-gold);
+}
+
+.settings-section {
+  margin-top: 12px;
+  color: var(--color-gold);
+}
+
+.profile-avatar-btn {
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--color-gold);
+  flex-shrink: 0;
+}
+
+.profile-list-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--color-border);
+  flex-wrap: wrap;
+}
+
+.profile-avatar {
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--color-ash);
+  flex-shrink: 0;
+}
+
+.profile-name {
+  color: var(--color-text-secondary);
+}
+
+.profile-name--active {
+  color: var(--color-gold);
+}
+
+.profile-color-swatch {
+  width: 28px;
+  height: 28px;
+  border: 2px solid transparent;
+  cursor: pointer;
+  border-radius: 0;
+}
+
+.profile-color-swatch--active {
+  border-color: var(--color-gold-bright);
+}
+
+/* Confirm sheet used in settings - match series page design */
+.confirm-sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 600;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.confirm-sheet__inner {
+  width: 100%;
+  max-width: 480px;
+  background: var(--color-obsidian);
+  border-top: 1px solid var(--color-ash);
+  padding: 18px 20px max(18px, env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+.series-title-input {
+  background: var(--color-elevated);
+  border: 1px solid var(--color-gold-dim);
+  color: var(--color-text);
+  padding: 8px 12px;
+  border-radius: 0;
+  width: 100%;
+  outline: none;
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 1rem;
+}
+
+.series-title-input:focus {
+  border-color: var(--color-gold);
+}

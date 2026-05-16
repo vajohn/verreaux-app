@@ -1,0 +1,17 @@
+.vrx-badge {
+  display: inline-block;
+  padding: 2px 5px;
+  border-radius: 0;
+  line-height: 1;
+}
+
+.vrx-badge--gold {
+  background: var(--color-gold);
+  color: var(--color-void);
+}
+
+.vrx-badge--outline {
+  background: transparent;
+  color: var(--color-gold);
+  border: 1px solid var(--color-gold-dim);
+}

@@ -1,0 +1,49 @@
+.import-zone {
+  padding: 28px 20px;
+  background: var(--color-surface);
+  border: 1px dashed var(--color-border);
+  border-radius: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  text-align: center;
+}
+
+.import-zone--drag {
+  border-color: var(--color-gold-dim);
+  background: var(--color-elevated);
+}
+
+.import-zone--active,
+.import-zone--success,
+.import-zone--error {
+  border-style: solid;
+  align-items: stretch;
+}
+
+.import-zone__head {
+  color: var(--color-gold);
+}
+
+.import-zone__label {
+  color: var(--color-text-muted);
+}
+
+.import-zone__msg {
+  color: var(--color-text-muted);
+  max-width: 360px;
+}
+
+.import-zone__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.import-zone--quota {
+  border-style: solid;
+  border-color: var(--color-gold-dim);
+  align-items: stretch;
+}

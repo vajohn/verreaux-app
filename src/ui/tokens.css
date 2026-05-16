@@ -1,0 +1,78 @@
+/* Canonical design tokens — dark mode is the default */
+:root,
+[data-theme="dark"] {
+  /* Backgrounds */
+  --color-void: #030303;
+  --color-obsidian: #0f0f0f;
+  --color-charcoal: #1a1a1a;
+  --color-ash: #2a2a2a;
+  --color-iron: #3d3d3d;
+
+  /* Text */
+  --color-bone: #f0e8d5;
+  --color-ivory: #e8dfc8;
+  --color-ivory-dim: #c4b89a;
+  --color-smoke: #6b6b6b;
+
+  /* Gold */
+  --color-gold: #c9962a;
+  --color-gold-bright: #e8b234;
+  --color-gold-dim: #8a6518;
+  --color-gold-muted: #5a4210;
+
+  /* Steel */
+  --color-steel: #9aa5b0;
+  --color-steel-bright: #c8d4dc;
+
+  /* Semantic aliases */
+  --color-bg: var(--color-void);
+  --color-surface: var(--color-obsidian);
+  --color-elevated: var(--color-charcoal);
+  --color-border: var(--color-ash);
+  --color-border-focus: var(--color-gold-dim);
+  --color-text: var(--color-bone);
+  --color-text-secondary: var(--color-ivory);
+  --color-text-muted: var(--color-ivory-dim);
+  --color-text-disabled: var(--color-smoke);
+  --color-accent: var(--color-gold);
+  --color-accent-hover: var(--color-gold-bright);
+  --color-error: var(--color-gold);
+}
+
+[data-theme="light"] {
+  /* Backgrounds (inverted) */
+  --color-void: #f5f0e8;
+  --color-obsidian: #ece6d8;
+  --color-charcoal: #e0d9c8;
+  --color-ash: #ccc4b0;
+  --color-iron: #b0a890;
+
+  /* Text (inverted) */
+  --color-bone: #1a1612;
+  --color-ivory: #2a2218;
+  --color-ivory-dim: #4a3e2c;
+  --color-smoke: #8a8070;
+
+  /* Gold (darkened for legibility on pale background) */
+  --color-gold: #8a6518;
+  --color-gold-bright: #c9962a;
+  --color-gold-dim: #5a4210;
+  --color-gold-muted: #3a2a08;
+
+  /* Steel (muted on light) */
+  --color-steel: #5a6570;
+  --color-steel-bright: #3a4550;
+
+  --color-bg: var(--color-void);
+  --color-surface: var(--color-obsidian);
+  --color-elevated: var(--color-charcoal);
+  --color-border: var(--color-ash);
+  --color-border-focus: var(--color-gold-dim);
+  --color-text: var(--color-bone);
+  --color-text-secondary: var(--color-ivory);
+  --color-text-muted: var(--color-ivory-dim);
+  --color-text-disabled: var(--color-smoke);
+  --color-accent: var(--color-gold);
+  --color-accent-hover: var(--color-gold-bright);
+  --color-error: var(--color-gold);
+}

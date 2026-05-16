@@ -1,0 +1,26 @@
+[
+  {
+    "label": "Wordmark",
+    "color": "rgb(232, 223, 200)",
+    "background": "rgba(0, 0, 0, 0)",
+    "fontFamily": "Cinzel, serif"
+  },
+  {
+    "label": "Nav button",
+    "color": "rgb(201, 150, 42)",
+    "background": "rgba(0, 0, 0, 0)",
+    "fontFamily": "Cinzel, serif"
+  },
+  {
+    "label": "Series card",
+    "color": "rgb(232, 223, 200)",
+    "background": "rgba(0, 0, 0, 0)",
+    "fontFamily": "\"Cormorant Garamond\", Georgia, serif"
+  },
+  {
+    "label": "Storage pill",
+    "color": "rgb(196, 184, 154)",
+    "background": "rgb(26, 26, 26)",
+    "fontFamily": "Cinzel, serif"
+  }
+]

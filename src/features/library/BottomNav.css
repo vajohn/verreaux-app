@@ -1,0 +1,31 @@
+.bottom-nav {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 300;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  background: var(--color-obsidian);
+  border-top: 1px solid var(--color-ash);
+  padding: 8px env(safe-area-inset-right) max(8px, env(safe-area-inset-bottom)) env(safe-area-inset-left);
+}
+
+.bottom-nav__btn {
+  padding: 12px 6px;
+  min-height: 44px;
+  color: var(--color-text-muted);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  transition: color 0.15s ease;
+  border-radius: 0;
+}
+
+.bottom-nav__btn--active {
+  color: var(--color-gold-bright);
+}
+
+.bottom-nav__btn:hover {
+  color: var(--color-gold-bright);
+}

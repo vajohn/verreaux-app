@@ -1,0 +1,129 @@
+.reader-settings-panel {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 600;
+  background: var(--color-surface);
+  border-top: 1px solid var(--color-border);
+  max-height: 80vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.reader-settings-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px 12px;
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-gold);
+}
+
+.reader-settings-panel__close {
+  background: transparent;
+  border: 1px solid var(--color-ash);
+  color: var(--color-text-muted);
+  padding: 6px 12px;
+  border-radius: 0;
+  cursor: pointer;
+}
+
+.reader-settings-panel__close:hover {
+  color: var(--color-gold);
+  border-color: var(--color-gold-dim);
+}
+
+.reader-settings-section {
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.reader-settings-label {
+  color: var(--color-text-muted);
+  margin-bottom: 8px;
+}
+
+.reader-settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.reader-settings-value {
+  color: var(--color-text-muted);
+  min-width: 36px;
+  text-align: right;
+}
+
+.reader-settings-mode-row {
+  display: flex;
+  gap: 8px;
+}
+
+.reader-settings-mode-btn {
+  padding: 8px 14px;
+  background: transparent;
+  border: 1px solid var(--color-ash);
+  color: var(--color-text-muted);
+  border-radius: 0;
+  cursor: pointer;
+}
+
+.reader-settings-mode-btn--active {
+  border-color: var(--color-gold);
+  color: var(--color-gold);
+  background: var(--color-gold-muted);
+}
+
+.reader-settings-mode-btn--disabled {
+  cursor: not-allowed;
+}
+
+.reader-settings-toggle {
+  padding: 8px 14px;
+  background: transparent;
+  border: 1px solid var(--color-ash);
+  color: var(--color-text-muted);
+  border-radius: 0;
+  cursor: pointer;
+}
+
+.reader-settings-toggle--on {
+  border-color: var(--color-gold);
+  color: var(--color-gold);
+}
+
+/* Range slider — the thumb has border-radius:50% per the spec exception for slider thumbs */
+.reader-settings-slider {
+  width: 100%;
+  margin-top: 10px;
+  accent-color: var(--color-gold);
+  cursor: pointer;
+  appearance: none;
+  height: 4px;
+  background: var(--color-ash);
+  border-radius: 0;
+  outline: none;
+}
+
+.reader-settings-slider::-webkit-slider-thumb {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  background: var(--color-gold);
+  cursor: pointer;
+
+  /* border-radius: 50% — browser native range thumb; spec exception allowed */
+  border-radius: 50%;
+}
+
+.reader-settings-slider::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  background: var(--color-gold);
+  cursor: pointer;
+  border: none;
+  border-radius: 50%;
+}

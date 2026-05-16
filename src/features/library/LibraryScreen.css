@@ -1,0 +1,44 @@
+.screen-root {
+  min-height: 100vh;
+  padding-bottom: 96px;
+}
+
+.screen-header {
+  position: sticky;
+  top: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  background: linear-gradient(to bottom, var(--color-void) 70%, transparent);
+}
+
+.wordmark {
+  color: var(--color-ivory);
+}
+
+.screen-main {
+  padding: 0 20px;
+}
+
+.section-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 28px 0 16px;
+}
+
+.section-head .type-section-label {
+  color: var(--color-gold);
+}
+
+.section-line {
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(to right, var(--color-gold-muted), transparent);
+}
+
+.library-count {
+  white-space: nowrap;
+}

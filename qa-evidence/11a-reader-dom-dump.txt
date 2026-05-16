@@ -1,0 +1,44 @@
+=== READER INVESTIGATION FINDINGS ===
+Date: 2026-05-16T06:49:50.172Z
+
+VERDICT: NO_BUG: Page 0 visible within 2s of navigation. Original capture was a timing artifact (e.g. pre-import state).
+SEVERITY: NONE
+
+METRICS:
+  img visible at t=2s (no scroll): true
+  img appeared within 5s (no scroll): true
+  img visible after 1px scroll: true
+
+DOM STATE AFTER SCROLL:
+{
+  "readerScrollExists": true,
+  "readerScrollHeight": 3464,
+  "pageSlotCount": 6,
+  "imgCount": 6,
+  "shimmerCount": 0,
+  "firstSlotClass": "page-slot",
+  "firstImgSrc": "blob:http://localhost:5174/5aad506c-8fd7-458c-8d90"
+}
+
+CONSOLE ERRORS:
+[
+  {
+    "type": "error",
+    "text": "Loading the image 'data:image/svg+xml,%3Csvg viewBox='0 0 512 512' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='1'/%3E%3C/svg%3E' violates the following Content Security Policy directive: \"img-src 'self' blob: https:\". The action has been blocked."
+  }
+]
+
+SCREENSHOTS:
+  t=2s no-scroll: 11a-reader-t2s-no-scroll.png
+  after-scroll: 11a-reader-after-scroll.png
+  success: 11a-reader-page-visible.png
+
+CODE ANALYSIS:
+  useVirtualization.ts: prefetchWindow() is ONLY called inside onCurrentIndexChange().
+  onCurrentIndexChange() is ONLY called from VirtualList.tsx IntersectionObserver callback.
+  NO mount-time useEffect calls prefetchWindow(0).
+  Therefore: page 0 blob is NOT loaded until IO fires — which requires a scroll event.
+  The IO root is scrollRoot (the .reader-scroll div). On mount, scrollTop=0 and
+  IntersectionObserver may or may not fire for elements already in viewport.
+  In practice: the IO fires on initial mount in real browsers but Playwright headless
+  may exhibit timing differences. The 2-second blank is a TIMING ARTIFACT in Playwright.

@@ -1,0 +1,146 @@
+[
+  {
+    "item": "09-library-count-badge",
+    "status": "PASS",
+    "finding": "Count badge shows \"0 / 4\" in header",
+    "screenshot": "06-library-populated.png"
+  },
+  {
+    "item": "10-series-page",
+    "status": "PASS",
+    "finding": "hero=true, chapterList=true",
+    "screenshot": "10-series-page.png"
+  },
+  {
+    "item": "10-series-overflow-menu",
+    "status": "PASS",
+    "finding": "Overflow menu: editTitle=true, delete=true",
+    "screenshot": "10-series-overflow.png"
+  },
+  {
+    "item": "22-mark-read-overflow",
+    "status": "PASS",
+    "finding": "Chapter overflow has Mark read option: true",
+    "screenshot": "10-chapter-overflow.png"
+  },
+  {
+    "item": "11-reader-open",
+    "status": "PASS",
+    "finding": "Reader loaded, URL: http://localhost:5173/#/read/1372ec9f-cfea-43e6-bb97-987ef0118028/277b9953-b002-4575-815a-ecf555414214",
+    "screenshot": "11-reader-initial.png"
+  },
+  {
+    "item": "11-reader-progress-bar",
+    "status": "PASS",
+    "finding": "Persistent progress bar: true",
+    "screenshot": "11-reader-initial.png"
+  },
+  {
+    "item": "11-reader-overlays",
+    "status": "PASS",
+    "finding": "top=true, bottom=true",
+    "screenshot": "11-reader-overlays-visible.png"
+  },
+  {
+    "item": "11-reader-chapter-chip",
+    "status": "PASS",
+    "finding": "Chapter chip present: true",
+    "screenshot": "11-reader-overlays-visible.png"
+  },
+  {
+    "item": "16-chapter-drawer",
+    "status": "PASS",
+    "finding": "Chapter drawer opens: true",
+    "screenshot": "16-chapter-drawer.png"
+  },
+  {
+    "item": "12-settings-panel-open",
+    "status": "PASS",
+    "finding": "Settings panel element present: true",
+    "screenshot": "12-reader-settings-panel.png"
+  },
+  {
+    "item": "12-reading-mode-webtoon",
+    "status": "PASS",
+    "finding": "Webtoon mode button: true",
+    "screenshot": "12-reader-settings-panel.png"
+  },
+  {
+    "item": "12-reading-mode-page-disabled",
+    "status": "PASS",
+    "finding": "Page mode button (disabled): true",
+    "screenshot": "12-reader-settings-panel.png"
+  },
+  {
+    "item": "12-gap-slider",
+    "status": "PASS",
+    "finding": "Page Gap slider: true",
+    "screenshot": "12-reader-settings-panel.png"
+  },
+  {
+    "item": "12-auto-next",
+    "status": "PASS",
+    "finding": "Auto Next toggle: true",
+    "screenshot": "12-reader-settings-panel.png"
+  },
+  {
+    "item": "12-brightness-slider",
+    "status": "PASS",
+    "finding": "Brightness slider: true",
+    "screenshot": "12-reader-settings-panel.png"
+  },
+  {
+    "item": "12-theme-toggle",
+    "status": "PASS",
+    "finding": "Theme toggle: true",
+    "screenshot": "12-reader-settings-panel.png"
+  },
+  {
+    "item": "12-page-btn-disabled",
+    "status": "PASS",
+    "finding": "Page button has disabled state: true",
+    "screenshot": "12-reader-settings-panel.png"
+  },
+  {
+    "item": "13-brightness-slider",
+    "status": "PASS",
+    "finding": "Brightness slider draggable, range 0-60",
+    "screenshot": "13-brightness-30.png"
+  },
+  {
+    "item": "14-light-mode-reader",
+    "status": "PASS",
+    "finding": "Theme toggle sets data-theme to \"light\"",
+    "screenshot": "14-reader-light-mode.png"
+  },
+  {
+    "item": "14-light-mode-home",
+    "status": "PASS",
+    "finding": "Light mode toggled from settings; data-theme=\"light\"",
+    "screenshot": "14b-home-light-mode.png"
+  },
+  {
+    "item": "20-profile-switcher",
+    "status": "PASS",
+    "finding": "Profile switcher sheet opens; hasNewProfile: true",
+    "screenshot": "20-profile-switcher-sheet.png"
+  },
+  {
+    "item": "23-export-button",
+    "status": "PASS",
+    "finding": "Export Library button present in settings panel",
+    "screenshot": "23-export-button.png"
+  },
+  {
+    "item": "responsive-desktop-overflow",
+    "status": "PASS",
+    "finding": "Desktop 1280x800 has horizontal overflow: false",
+    "screenshot": "responsive-desktop-1280-final.png"
+  },
+  {
+    "item": "24-pwa-manifest",
+    "status": "FAIL",
+    "finding": "manifest.webmanifest is not valid JSON: Unexpected token '<', \"<!doctype \"... is not valid JSON",
+    "screenshot": ""
+  }
+]
