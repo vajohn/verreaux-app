@@ -4,6 +4,7 @@ import { uuid } from '../../lib/uuid';
 import { walkLibrary, walkChapterUpdate, type SeriesEntry } from './zipWalker';
 import { normalizeTitle } from '../../db/repos/series.repo';
 import type { ImportType } from './typeDetector';
+import type { LogEntry } from '../../db/types';
 
 export type WorkerOutMessage =
   | { type: 'QUOTA_WARNING'; estimatedBytes: number; availableBytes: number }
@@ -17,7 +18,8 @@ export type WorkerOutMessage =
     }
   | { type: 'SUCCESS'; seriesCount: number }
   | { type: 'ERROR'; message: string }
-  | { type: 'CANCELLED' };
+  | { type: 'CANCELLED' }
+  | { type: 'LOG'; entry: Omit<LogEntry, 'id'> };
 
 export type Emit = (msg: WorkerOutMessage) => void;
 
@@ -25,11 +27,24 @@ export interface CancelToken {
   cancelled: boolean;
 }
 
+export interface WorkerLogger {
+  info(source: string, msg: string, ctx?: unknown): void;
+  warn(source: string, msg: string, ctx?: unknown): void;
+  error(source: string, msg: string, ctx?: unknown): void;
+}
+
+const NULL_LOGGER: WorkerLogger = {
+  info: () => undefined,
+  warn: () => undefined,
+  error: () => undefined,
+};
+
 interface NewSeriesContext {
   zip: JSZip;
   activeProfileId: string;
   emit: Emit;
   cancel: CancelToken;
+  log: WorkerLogger;
 }
 
 export async function runNewSeriesPipeline(
@@ -38,9 +53,15 @@ export async function runNewSeriesPipeline(
   activeProfileId: string,
   emit: Emit,
   cancel: CancelToken = { cancelled: false },
+  log: WorkerLogger = NULL_LOGGER,
 ): Promise<number> {
   const seriesList: SeriesEntry[] =
     importType === 'type1' || importType === 'type2' ? await walkLibrary(zip) : [];
+
+  log.info('walk', 'walkLibrary done', {
+    seriesCount: seriesList.length,
+    totalChapters: seriesList.reduce((s, x) => s + x.chapters.length, 0),
+  });
 
   const totalChapters = seriesList.reduce((s, x) => s + x.chapters.length, 0) || 1;
   const startTime = Date.now();
@@ -48,7 +69,24 @@ export async function runNewSeriesPipeline(
 
   for (const entry of seriesList) {
     if (cancel.cancelled) throw new Error('CANCELLED');
-    await writeSeriesTransaction({ zip, activeProfileId, emit, cancel }, entry, totalChapters, startTime, counter);
+    log.info('series', 'begin', {
+      title: entry.title,
+      chapters: entry.chapters.length,
+      hasCover: !!entry.coverPath,
+    });
+    try {
+      await writeSeriesTransaction(
+        { zip, activeProfileId, emit, cancel, log },
+        entry,
+        totalChapters,
+        startTime,
+        counter,
+      );
+      log.info('series', 'done', { title: entry.title });
+    } catch (err) {
+      log.error('series', 'failed', { title: entry.title, error: err });
+      throw err;
+    }
   }
 
   return seriesList.length;
@@ -61,7 +99,7 @@ async function writeSeriesTransaction(
   startTime: number,
   counter: { value: number },
 ): Promise<void> {
-  const { zip, activeProfileId, emit, cancel } = ctx;
+  const { zip, activeProfileId, emit, cancel, log } = ctx;
   const incomingNormalized = normalizeTitle(entry.title);
 
   // Look up an existing series for merge (Type 1 includes-existing handling).
@@ -113,12 +151,32 @@ async function writeSeriesTransaction(
     if (cancel.cancelled) throw new Error('CANCELLED');
     if (skipExistingOrders.has(chapter.order)) continue;
     const pages: PreparedPage[] = [];
+    let missing = 0;
     for (const page of chapter.pages) {
       if (cancel.cancelled) throw new Error('CANCELLED');
       const z = zip.file(page.path);
-      if (!z) continue;
-      const blob = await z.async('blob');
-      pages.push({ pageNumber: page.pageNumber, blob });
+      if (!z) {
+        missing++;
+        continue;
+      }
+      try {
+        const blob = await z.async('blob');
+        pages.push({ pageNumber: page.pageNumber, blob });
+      } catch (err) {
+        log.error('blob', 'page blob() failed', {
+          path: page.path,
+          chapter: chapter.title,
+          error: err,
+        });
+        throw err;
+      }
+    }
+    if (missing > 0) {
+      log.warn('blob', 'missing page entries in zip', {
+        chapter: chapter.title,
+        missing,
+        ofTotal: chapter.pages.length,
+      });
     }
     chaptersToWrite.push({ title: chapter.title, order: chapter.order, pages });
   }
@@ -225,8 +283,10 @@ export async function runChapterMergePipeline(
   activeProfileId: string,
   emit: Emit,
   cancel: CancelToken = { cancelled: false },
+  log: WorkerLogger = NULL_LOGGER,
 ): Promise<void> {
   const chapters = await walkChapterUpdate(zip);
+  log.info('walk', 'walkChapterUpdate done', { chapters: chapters.length });
   const totalChapters = chapters.length || 1;
   const startTime = Date.now();
   const counter = { value: 0 };
@@ -254,12 +314,32 @@ export async function runChapterMergePipeline(
     if (cancel.cancelled) throw new Error('CANCELLED');
     if (existingOrders.has(chapter.order)) continue;
     const pages: PreparedPage[] = [];
+    let missing = 0;
     for (const page of chapter.pages) {
       if (cancel.cancelled) throw new Error('CANCELLED');
       const z = zip.file(page.path);
-      if (!z) continue;
-      const blob = await z.async('blob');
-      pages.push({ pageNumber: page.pageNumber, blob });
+      if (!z) {
+        missing++;
+        continue;
+      }
+      try {
+        const blob = await z.async('blob');
+        pages.push({ pageNumber: page.pageNumber, blob });
+      } catch (err) {
+        log.error('blob', 'page blob() failed (merge)', {
+          path: page.path,
+          chapter: chapter.title,
+          error: err,
+        });
+        throw err;
+      }
+    }
+    if (missing > 0) {
+      log.warn('blob', 'missing page entries in zip (merge)', {
+        chapter: chapter.title,
+        missing,
+        ofTotal: chapter.pages.length,
+      });
     }
     chaptersToWrite.push({ title: chapter.title, order: chapter.order, pages });
   }

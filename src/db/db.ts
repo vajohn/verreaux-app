@@ -7,6 +7,7 @@ import type {
   BlobRecord,
   ReadingProgress,
   Bookmark,
+  LogEntry,
 } from './types';
 import { uuid } from '../lib/uuid';
 
@@ -18,6 +19,7 @@ export class VerreauxDB extends Dexie {
   blobs!: Table<BlobRecord, string>;
   readingProgress!: Table<ReadingProgress, string>;
   bookmarks!: Table<Bookmark, string>;
+  logs!: Table<LogEntry, string>;
 
   constructor(name = 'VerreauxDB') {
     super(name);
@@ -95,6 +97,12 @@ export class VerreauxDB extends Dexie {
           // localStorage may not be available in workers/tests; ignore.
         }
       });
+
+    // v3 — diagnostic logs (LogEntry). Indexed on ts so we can query newest-first
+    // and prune oldest cheaply.
+    this.version(3).stores({
+      logs: 'id, ts, level, source, runId',
+    });
   }
 }
 

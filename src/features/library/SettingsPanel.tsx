@@ -5,6 +5,7 @@ import { exportLibrary } from './exportLibrary';
 import { useEscape } from '../../lib/useEscape';
 import { ClearProgressSheet } from './ClearProgressSheet';
 import { OptimizeStorageSheet } from './OptimizeStorageSheet';
+import { DebugViewer } from '../debug/DebugViewer';
 import type { Profile, AvatarColor, Theme, LibrarySort } from '../../db/types';
 import './SettingsPanel.css';
 
@@ -67,15 +68,17 @@ export function SettingsPanel() {
   const [deleteTarget, setDeleteTarget] = useState<Profile | null>(null);
   const [clearProgressOpen, setClearProgressOpen] = useState(false);
   const [optimizeOpen, setOptimizeOpen] = useState(false);
+  const [debugOpen, setDebugOpen] = useState(false);
 
   const handleEscape = useCallback(() => {
+    if (debugOpen) { setDebugOpen(false); return; }
     if (optimizeOpen) { setOptimizeOpen(false); return; }
     if (clearProgressOpen) { setClearProgressOpen(false); return; }
     if (deleteTarget) { setDeleteTarget(null); return; }
     if (renameTarget) { setRenameTarget(null); return; }
     if (newProfileSheet) { setNewProfileSheet(false); return; }
     if (profilesOpen) { setProfilesOpen(false); }
-  }, [optimizeOpen, clearProgressOpen, deleteTarget, renameTarget, newProfileSheet, profilesOpen]);
+  }, [debugOpen, optimizeOpen, clearProgressOpen, deleteTarget, renameTarget, newProfileSheet, profilesOpen]);
 
   useEscape(handleEscape);
 
@@ -263,6 +266,23 @@ export function SettingsPanel() {
         </button>
       </div>
 
+      {/* Diagnostics */}
+      <div className="type-section-label settings-section">Diagnostics</div>
+      <div className="settings-row">
+        <div style={{ flex: 1 }}>
+          <span className="type-body">View Logs</span>
+          <div className="type-nav-label" style={{ color: 'var(--color-text-muted)', marginTop: 2 }}>
+            Inspect, copy or export recent app/import activity to share when reporting issues.
+          </div>
+        </div>
+        <button
+          className="settings-toggle type-button"
+          onClick={() => setDebugOpen(true)}
+        >
+          Open
+        </button>
+      </div>
+
       <div className="type-section-label settings-section">About</div>
       <div className="type-body">Verreaux PWA — offline manhwa reader.</div>
 
@@ -272,6 +292,7 @@ export function SettingsPanel() {
       {optimizeOpen && (
         <OptimizeStorageSheet onClose={() => setOptimizeOpen(false)} />
       )}
+      {debugOpen && <DebugViewer onClose={() => setDebugOpen(false)} />}
 
       {/* Profiles Sheet */}
       {profilesOpen && (

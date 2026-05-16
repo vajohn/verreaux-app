@@ -2,6 +2,9 @@ import ImportWorker from './import.worker?worker';
 import type { ImportContext } from './typeDetector';
 import { useImportStore } from './import.store';
 import { useLibraryStore } from '../library/library.store';
+import { log } from '../../lib/log';
+import type { LogEntry } from '../../db/types';
+import { uuid } from '../../lib/uuid';
 
 export interface StartArgs {
   file: File;
@@ -81,6 +84,14 @@ function launchWorker(args: StartArgs): void {
   currentWorker = w;
   useImportStore.getState().setState({ status: 'detecting' });
 
+  const runId = uuid();
+  log.info('import', 'launch worker', {
+    runId,
+    fileName: args.file.name,
+    fileSize: args.file.size,
+    context: args.context,
+  });
+
   w.onmessage = (e: MessageEvent) => {
     const msg = e.data as
       | {
@@ -93,7 +104,13 @@ function launchWorker(args: StartArgs): void {
         }
       | { type: 'SUCCESS'; seriesCount: number }
       | { type: 'ERROR'; message: string }
-      | { type: 'CANCELLED' };
+      | { type: 'CANCELLED' }
+      | { type: 'LOG'; entry: Omit<LogEntry, 'id'> };
+
+    if (msg.type === 'LOG') {
+      log.ingestRemote(msg.entry);
+      return;
+    }
 
     if (msg.type === 'PROGRESS') {
       useImportStore.getState().setState({
@@ -105,16 +122,19 @@ function launchWorker(args: StartArgs): void {
         eta: msg.eta,
       });
     } else if (msg.type === 'SUCCESS') {
+      log.info('import', 'success', { runId, seriesCount: msg.seriesCount });
       useImportStore.getState().setState({ status: 'success', seriesCount: msg.seriesCount });
       void useLibraryStore.getState().loadLibrary();
       void useLibraryStore.getState().refreshStorageUsed();
       w.terminate();
       currentWorker = null;
     } else if (msg.type === 'ERROR') {
+      log.error('import', 'reported error', { runId, message: msg.message });
       useImportStore.getState().setState({ status: 'error', message: msg.message });
       w.terminate();
       currentWorker = null;
     } else if (msg.type === 'CANCELLED') {
+      log.info('import', 'cancelled', { runId });
       useImportStore.getState().setState({ status: 'cancelled' });
       w.terminate();
       currentWorker = null;
@@ -122,6 +142,13 @@ function launchWorker(args: StartArgs): void {
   };
 
   w.onerror = (e: ErrorEvent) => {
+    log.error('import', 'worker crashed', {
+      runId,
+      message: e.message,
+      filename: e.filename,
+      line: e.lineno,
+      col: e.colno,
+    });
     useImportStore.getState().setState({ status: 'error', message: e.message || 'Worker crashed' });
     w.terminate();
     currentWorker = null;
@@ -133,5 +160,6 @@ function launchWorker(args: StartArgs): void {
     context: args.context,
     targetSeriesId: args.targetSeriesId,
     activeProfileId: args.activeProfileId,
+    runId,
   });
 }

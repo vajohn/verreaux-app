@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { App } from './App';
 import { bootstrapDefaultProfile } from './db/bootstrap';
 import { registerCoverFetchListeners } from './features/series/coverFetchRunner';
+import { installGlobalLogHandlers, log } from './lib/log';
 // Vendored fonts — satisfies "no network dependency after install" spec requirement.
 import '@fontsource/cinzel/400.css';
 import '@fontsource/cinzel/600.css';
@@ -18,6 +19,11 @@ import './ui/typography.css';
 import './ui/animations.css';
 
 async function start(): Promise<void> {
+  installGlobalLogHandlers();
+  log.info('boot', 'app.start', {
+    ua: navigator.userAgent,
+    platform: navigator.platform,
+  });
   await bootstrapDefaultProfile();
   registerCoverFetchListeners();
   const rootEl = document.getElementById('root');

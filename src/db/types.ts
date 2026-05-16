@@ -81,3 +81,17 @@ export interface ReaderSettings {
 
 export type LibrarySort = 'lastRead' | 'title' | 'custom';
 export type Theme = 'dark' | 'light';
+
+export type LogLevel = 'info' | 'warn' | 'error';
+
+export interface LogEntry {
+  id: string;
+  ts: number;
+  level: LogLevel;
+  source: string;
+  msg: string;
+  /** Serialized arbitrary context — must be JSON-safe. */
+  ctx: string | null;
+  /** Correlates entries from a single import / operation. */
+  runId: string | null;
+}
