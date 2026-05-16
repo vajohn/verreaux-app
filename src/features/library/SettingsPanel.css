@@ -122,3 +122,9 @@
 .series-title-input:focus {
   border-color: var(--color-gold);
 }
+
+.cp-mode-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}

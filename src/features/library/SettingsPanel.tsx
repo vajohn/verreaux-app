@@ -4,6 +4,7 @@ import { getAllProfiles, createProfile, renameProfile, deleteProfile } from '../
 import { exportLibrary } from './exportLibrary';
 import { useEscape } from '../../lib/useEscape';
 import { ClearProgressSheet } from './ClearProgressSheet';
+import { OptimizeStorageSheet } from './OptimizeStorageSheet';
 import type { Profile, AvatarColor, Theme, LibrarySort } from '../../db/types';
 import './SettingsPanel.css';
 
@@ -65,14 +66,16 @@ export function SettingsPanel() {
   const [renameValue, setRenameValue] = useState('');
   const [deleteTarget, setDeleteTarget] = useState<Profile | null>(null);
   const [clearProgressOpen, setClearProgressOpen] = useState(false);
+  const [optimizeOpen, setOptimizeOpen] = useState(false);
 
   const handleEscape = useCallback(() => {
+    if (optimizeOpen) { setOptimizeOpen(false); return; }
     if (clearProgressOpen) { setClearProgressOpen(false); return; }
     if (deleteTarget) { setDeleteTarget(null); return; }
     if (renameTarget) { setRenameTarget(null); return; }
     if (newProfileSheet) { setNewProfileSheet(false); return; }
     if (profilesOpen) { setProfilesOpen(false); }
-  }, [clearProgressOpen, deleteTarget, renameTarget, newProfileSheet, profilesOpen]);
+  }, [optimizeOpen, clearProgressOpen, deleteTarget, renameTarget, newProfileSheet, profilesOpen]);
 
   useEscape(handleEscape);
 
@@ -232,14 +235,31 @@ export function SettingsPanel() {
         <div style={{ flex: 1 }}>
           <span className="type-body">Clear Read Chapters</span>
           <div className="type-nav-label" style={{ color: 'var(--color-text-muted)', marginTop: 2 }}>
-            Reset reading progress across selected series. Chapters and bookmarks are kept.
+            Reset progress, or destructively delete chapter data to free storage.
           </div>
         </div>
         <button
           className="settings-toggle settings-toggle--gold type-button"
           onClick={() => setClearProgressOpen(true)}
         >
-          Clear…
+          Manage…
+        </button>
+      </div>
+
+      {/* Storage */}
+      <div className="type-section-label settings-section">Storage</div>
+      <div className="settings-row">
+        <div style={{ flex: 1 }}>
+          <span className="type-body">Optimize Storage</span>
+          <div className="type-nav-label" style={{ color: 'var(--color-text-muted)', marginTop: 2 }}>
+            Recompress existing pages to 1600px JPEG 0.85. Typically frees 30–60%.
+          </div>
+        </div>
+        <button
+          className="settings-toggle type-button"
+          onClick={() => setOptimizeOpen(true)}
+        >
+          Optimize…
         </button>
       </div>
 
@@ -248,6 +268,9 @@ export function SettingsPanel() {
 
       {clearProgressOpen && (
         <ClearProgressSheet onClose={() => setClearProgressOpen(false)} />
+      )}
+      {optimizeOpen && (
+        <OptimizeStorageSheet onClose={() => setOptimizeOpen(false)} />
       )}
 
       {/* Profiles Sheet */}

@@ -9,12 +9,20 @@ import { ImportZone } from '../library/ImportZone';
 import { navigate } from '../../app/router';
 import { useEscape } from '../../lib/useEscape';
 import { db } from '../../db/db';
-import { deleteSeries, updateSeriesTitle, setCoverBlobOverride } from '../../db/repos/series.repo';
+import {
+  deleteSeries,
+  updateSeriesTitle,
+  setCoverBlobOverride,
+  previewReadChaptersToDelete,
+  deleteReadChapters,
+  type DeleteReadChaptersResult,
+} from '../../db/repos/series.repo';
 import { updateChapterTitle } from '../../db/repos/chapters.repo';
 import { upsertProgress, getProgress, clearSeriesProgress } from '../../db/repos/progress.repo';
 import { addBlob } from '../../db/repos/blobs.repo';
 import { useSeriesProgress } from '../library/useSeriesProgress';
 import { formatRelativeTime } from '../../lib/formatRelativeTime';
+import { formatBytes } from '../../lib/formatBytes';
 import type { Chapter } from '../../db/types';
 import './SeriesScreen.css';
 
@@ -34,7 +42,11 @@ export function SeriesScreen({ seriesId }: SeriesScreenProps) {
   const [manuallyReadIds, setManuallyReadIds] = useState<Set<string>>(new Set());
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [confirmClearProgress, setConfirmClearProgress] = useState(false);
+  const [deleteReadPreview, setDeleteReadPreview] =
+    useState<DeleteReadChaptersResult | null>(null);
+  const [deleteReadWorking, setDeleteReadWorking] = useState(false);
   const loadLibrary = useLibraryStore((s) => s.loadLibrary);
+  const refreshStorageUsed = useLibraryStore((s) => s.refreshStorageUsed);
 
   // Overflow sheet state
   const [overflowTarget, setOverflowTarget] = useState<OverflowTarget | null>(null);
@@ -105,12 +117,14 @@ export function SeriesScreen({ seriesId }: SeriesScreenProps) {
   }, [editingTitle]);
 
   const handleEscape = useCallback(() => {
+    if (deleteReadWorking) return;
     if (confirmDelete) { setConfirmDelete(false); return; }
     if (confirmClearProgress) { setConfirmClearProgress(false); return; }
+    if (deleteReadPreview) { setDeleteReadPreview(null); return; }
     if (editingTitle) { setEditingTitle(null); return; }
     if (coverUrlSheet) { setCoverUrlSheet(false); setCoverUrlStatus('idle'); return; }
     if (overflowTarget) { setOverflowTarget(null); }
-  }, [confirmDelete, confirmClearProgress, editingTitle, coverUrlSheet, overflowTarget]);
+  }, [confirmDelete, confirmClearProgress, deleteReadPreview, deleteReadWorking, editingTitle, coverUrlSheet, overflowTarget]);
 
   useEscape(handleEscape);
 
@@ -417,6 +431,34 @@ export function SeriesScreen({ seriesId }: SeriesScreenProps) {
               }}
             >
               Clear read chapters
+              <div
+                className="type-nav-label"
+                style={{ color: 'var(--color-text-muted)', marginTop: 2 }}
+              >
+                Resets progress. Pages stay on device.
+              </div>
+            </button>
+            <button
+              className="overflow-action-btn type-body"
+              disabled={seriesProgress.readChapters === 0}
+              style={{
+                color: seriesProgress.readChapters === 0 ? 'var(--color-text-muted)' : 'var(--color-gold)',
+                cursor: seriesProgress.readChapters === 0 ? 'not-allowed' : 'pointer',
+              }}
+              onClick={async () => {
+                if (seriesProgress.readChapters === 0) return;
+                setOverflowTarget(null);
+                const preview = await previewReadChaptersToDelete(profileId, seriesId);
+                setDeleteReadPreview(preview);
+              }}
+            >
+              Delete read chapters
+              <div
+                className="type-nav-label"
+                style={{ color: 'var(--color-text-muted)', marginTop: 2 }}
+              >
+                Destructive. Frees storage. Re-import to recover.
+              </div>
             </button>
             <div className="confirm-sheet__actions">
               <Button variant="ghost" onClick={() => setOverflowTarget(null)}>
@@ -547,6 +589,58 @@ export function SeriesScreen({ seriesId }: SeriesScreenProps) {
             <div className="confirm-sheet__actions">
               <Button variant="ghost" onClick={() => setEditingTitle(null)}>Cancel</Button>
               <Button onClick={() => void handleSaveTitle()}>Save</Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {deleteReadPreview && (
+        <div className="confirm-sheet" role="dialog" aria-modal="true">
+          <div className="confirm-sheet__inner">
+            <div className="type-section-label" style={{ color: 'var(--color-gold)' }}>
+              Delete read chapters
+            </div>
+            {deleteReadPreview.chaptersDeleted === 0 ? (
+              <div className="type-body">No read chapters to delete.</div>
+            ) : (
+              <>
+                <div className="type-body">
+                  This permanently deletes {deleteReadPreview.chaptersDeleted} chapter
+                  {deleteReadPreview.chaptersDeleted === 1 ? '' : 's'} from{' '}
+                  {currentSeries.title}, freeing about{' '}
+                  <strong>{formatBytes(deleteReadPreview.bytesFreed)}</strong>. Pages and
+                  bookmarks for these chapters are removed. Re-import the series to
+                  recover them.
+                </div>
+                <div className="type-nav-label" style={{ color: 'var(--color-text-muted)' }}>
+                  Reading progress will be reset.
+                </div>
+              </>
+            )}
+            <div className="confirm-sheet__actions">
+              <Button
+                variant="ghost"
+                onClick={() => setDeleteReadPreview(null)}
+                disabled={deleteReadWorking}
+              >
+                Cancel
+              </Button>
+              <Button
+                disabled={deleteReadWorking || deleteReadPreview.chaptersDeleted === 0}
+                onClick={async () => {
+                  setDeleteReadWorking(true);
+                  await deleteReadChapters(profileId, seriesId);
+                  setCurrentChapterId(null);
+                  setManuallyReadIds(new Set());
+                  await loadSeries(seriesId);
+                  await loadLibrary();
+                  await refreshStorageUsed();
+                  setDeleteReadWorking(false);
+                  setDeleteReadPreview(null);
+                }}
+              >
+                {deleteReadWorking ? 'Deleting…' : 'Delete'}
+              </Button>
             </div>
           </div>
         </div>

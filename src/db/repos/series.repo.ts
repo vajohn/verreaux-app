@@ -122,6 +122,92 @@ export async function deleteSeries(seriesId: string): Promise<void> {
   );
 }
 
+export interface DeleteReadChaptersResult {
+  chaptersDeleted: number;
+  bytesFreed: number;
+}
+
+export async function previewReadChaptersToDelete(
+  profileId: string,
+  seriesId: string,
+): Promise<DeleteReadChaptersResult> {
+  const progress = await db.readingProgress
+    .where('[profileId+seriesId]')
+    .equals([profileId, seriesId])
+    .first();
+  if (!progress) return { chaptersDeleted: 0, bytesFreed: 0 };
+  const current = await db.chapters.get(progress.currentChapterId);
+  if (!current) return { chaptersDeleted: 0, bytesFreed: 0 };
+  const readChapters = await db.chapters
+    .where('[seriesId+order]')
+    .between([seriesId, -Infinity], [seriesId, current.order], true, true)
+    .toArray();
+  const chapterIds = readChapters.map((c) => c.id);
+  if (chapterIds.length === 0) return { chaptersDeleted: 0, bytesFreed: 0 };
+  const pages = await db.pages.where('chapterId').anyOf(chapterIds).toArray();
+  let bytesFreed = 0;
+  for (const p of pages) {
+    const b = await db.blobs.get(p.blobId);
+    if (b) bytesFreed += b.blob.size;
+  }
+  return { chaptersDeleted: chapterIds.length, bytesFreed };
+}
+
+export async function deleteReadChapters(
+  profileId: string,
+  seriesId: string,
+): Promise<DeleteReadChaptersResult> {
+  return db.transaction(
+    'rw',
+    [db.series, db.chapters, db.pages, db.blobs, db.readingProgress, db.bookmarks],
+    async () => {
+      const progress = await db.readingProgress
+        .where('[profileId+seriesId]')
+        .equals([profileId, seriesId])
+        .first();
+      if (!progress) return { chaptersDeleted: 0, bytesFreed: 0 };
+
+      const current = await db.chapters.get(progress.currentChapterId);
+      if (!current) return { chaptersDeleted: 0, bytesFreed: 0 };
+
+      const readChapters = await db.chapters
+        .where('[seriesId+order]')
+        .between([seriesId, -Infinity], [seriesId, current.order], true, true)
+        .toArray();
+      const chapterIds = readChapters.map((c) => c.id);
+      if (chapterIds.length === 0) return { chaptersDeleted: 0, bytesFreed: 0 };
+
+      const pages = await db.pages.where('chapterId').anyOf(chapterIds).toArray();
+      const blobIds = pages.map((p) => p.blobId);
+
+      let bytesFreed = 0;
+      for (const id of blobIds) {
+        const b = await db.blobs.get(id);
+        if (b) bytesFreed += b.blob.size;
+      }
+
+      await db.blobs.bulkDelete(blobIds);
+      await db.pages.where('chapterId').anyOf(chapterIds).delete();
+      await db.bookmarks.where('chapterId').anyOf(chapterIds).delete();
+      await db.chapters.where('id').anyOf(chapterIds).delete();
+
+      await db.readingProgress
+        .where('[profileId+seriesId]')
+        .equals([profileId, seriesId])
+        .delete();
+
+      const newCount = await db.chapters.where('seriesId').equals(seriesId).count();
+      await db.series.update(seriesId, {
+        chapterCount: newCount,
+        lastReadChapterId: null,
+        lastReadAt: null,
+      });
+
+      return { chaptersDeleted: chapterIds.length, bytesFreed };
+    },
+  );
+}
+
 /* Manual merge primitives (NICE TO HAVE — kept lean here) */
 
 export interface MergeConflict {

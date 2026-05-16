@@ -14,6 +14,14 @@ export function App() {
     void loadLibrary();
   }, [loadLibrary]);
 
+  useEffect(() => {
+    if (navigator.storage?.persist) {
+      void navigator.storage.persist().catch(() => {
+        // Browser may decline; silent fallback.
+      });
+    }
+  }, []);
+
   let screen;
   switch (route.screen) {
     case 'series':
