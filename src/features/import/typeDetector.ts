@@ -1,4 +1,4 @@
-import type JSZip from 'jszip';
+import type { ZipReader } from '../../lib/zip';
 
 export type ImportType = 'type1' | 'type2' | 'type3';
 export type ImportContext = 'home' | 'series';
@@ -17,15 +17,15 @@ export function isImage(name: string): boolean {
 /**
  * Returns the list of top-level folder paths (e.g. "Solo Leveling/").
  */
-export function getTopLevelFolders(zip: JSZip): string[] {
+export function getTopLevelFolders(zip: ZipReader): string[] {
   const folders = new Set<string>();
-  zip.forEach((path) => {
-    const parts = path.split('/').filter(Boolean);
+  for (const entry of zip.entries()) {
+    const parts = entry.path.split('/').filter(Boolean);
     if (parts.length >= 2) {
       // Has at least one nested entry — top-level is parts[0]
       folders.add(`${parts[0]}/`);
     }
-  });
+  }
   return Array.from(folders);
 }
 
@@ -33,20 +33,19 @@ export function getTopLevelFolders(zip: JSZip): string[] {
  * Detects whether `path` (a folder ending in `/`) contains nested folders
  * (so it looks like Series→Chapters), versus only image files (Chapter only).
  */
-export function folderHasSubfolders(zip: JSZip, folder: string): boolean {
+export function folderHasSubfolders(zip: ZipReader, folder: string): boolean {
   const prefix = folder.endsWith('/') ? folder : `${folder}/`;
-  let has = false;
-  zip.forEach((path) => {
-    if (has) return;
-    if (!path.startsWith(prefix) || path === prefix) return;
+  for (const entry of zip.entries()) {
+    const path = entry.path;
+    if (!path.startsWith(prefix) || path === prefix) continue;
     const rest = path.slice(prefix.length);
     const parts = rest.split('/').filter(Boolean);
-    if (parts.length >= 2) has = true;
-  });
-  return has;
+    if (parts.length >= 2) return true;
+  }
+  return false;
 }
 
-export function detectImportType(zip: JSZip, context: ImportContext): ImportType {
+export function detectImportType(zip: ZipReader, context: ImportContext): ImportType {
   const topFolders = getTopLevelFolders(zip);
 
   if (context === 'series') {

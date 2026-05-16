@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import JSZip from 'jszip';
+import { makeTestZip } from '../helpers/makeTestZip';
+import type { ZipReader } from '../../src/lib/zip';
 import { db } from '../../src/db/db';
 import { runNewSeriesPipeline } from '../../src/features/import/importRuntime';
 import { detectImportType } from '../../src/features/import/typeDetector';
@@ -20,12 +21,12 @@ function makeMinimalPng(): Uint8Array {
   ]);
 }
 
-async function buildLibraryZip(seriesName: string): Promise<JSZip> {
-  const zip = new JSZip();
+async function buildLibraryZip(seriesName: string): Promise<ZipReader> {
   const png = makeMinimalPng();
-  zip.file(`${seriesName}/cover.png`, png);
-  zip.file(`${seriesName}/Chapter 001/001.png`, png);
-  return zip;
+  return makeTestZip({
+    [`${seriesName}/cover.png`]: png,
+    [`${seriesName}/Chapter 001/001.png`]: png,
+  });
 }
 
 let profileA: string;

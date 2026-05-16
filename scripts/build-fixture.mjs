@@ -1,9 +1,13 @@
 // Build the fixture ZIP used by tests and the dev demo.
-// Pure-Node: writes a tiny placeholder PNG (8x8) and zips it via JSZip.
+// Pure-Node: writes tiny placeholder PNGs and zips them via @zip.js/zip.js.
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import JSZip from 'jszip';
+import {
+  Uint8ArrayReader,
+  Uint8ArrayWriter,
+  ZipWriter,
+} from '@zip.js/zip.js';
 import { Buffer } from 'node:buffer';
 import { deflateRawSync, crc32 } from 'node:zlib';
 
@@ -64,7 +68,7 @@ async function main() {
   const outDir = resolve(__dirname, '..', 'test', 'fixtures');
   mkdirSync(outDir, { recursive: true });
 
-  const zip = new JSZip();
+  const zip = new ZipWriter(new Uint8ArrayWriter(), { level: 0 });
 
   // Two series. Each has 2 chapters. Each chapter has 3 pages.
   const series = [
@@ -75,21 +79,21 @@ async function main() {
   for (const s of series) {
     // cover at series root
     const cover = makePng(16, 24, s.tone);
-    zip.file(`${s.name}/cover.png`, cover);
+    await zip.add(`${s.name}/cover.png`, new Uint8ArrayReader(new Uint8Array(cover)));
     for (let c = 1; c <= 2; c++) {
       for (let p = 1; p <= 3; p++) {
         const png = makePng(20, 28, (s.tone + c * 10 + p * 5) & 0xff);
         const cName = `Chapter ${String(c).padStart(3, '0')}`;
         const pName = `${String(p).padStart(3, '0')}.png`;
-        zip.file(`${s.name}/${cName}/${pName}`, png);
+        await zip.add(`${s.name}/${cName}/${pName}`, new Uint8ArrayReader(new Uint8Array(png)));
       }
     }
   }
 
-  const buf = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
+  const bytes = await zip.close();
   const outPath = resolve(outDir, 'library.zip');
-  writeFileSync(outPath, buf);
-  console.log(`Wrote ${outPath} (${buf.length} bytes)`);
+  writeFileSync(outPath, Buffer.from(bytes));
+  console.log(`Wrote ${outPath} (${bytes.length} bytes)`);
 }
 
 main().catch((err) => {

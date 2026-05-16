@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-import JSZip from 'jszip';
+import { makeTestZip } from '../helpers/makeTestZip';
+import type { ZipReader } from '../../src/lib/zip';
 import { db } from '../../src/db/db';
 import { runNewSeriesPipeline, runChapterMergePipeline } from '../../src/features/import/importRuntime';
 import { detectImportType } from '../../src/features/import/typeDetector';
@@ -25,29 +26,30 @@ function makeMinimalPng(): Uint8Array {
  * Build a library ZIP with the given series name and chapter numbers.
  * Each chapter gets one PNG page.
  */
-async function buildLibraryZip(seriesName: string, chapterNumbers: number[]): Promise<JSZip> {
-  const zip = new JSZip();
+async function buildLibraryZip(seriesName: string, chapterNumbers: number[]): Promise<ZipReader> {
   const png = makeMinimalPng();
-  zip.file(`${seriesName}/cover.png`, png);
+  const files: Record<string, Uint8Array> = {
+    [`${seriesName}/cover.png`]: png,
+  };
   for (const n of chapterNumbers) {
     const chName = `Chapter ${String(n).padStart(3, '0')}`;
-    zip.file(`${seriesName}/${chName}/001.png`, png);
+    files[`${seriesName}/${chName}/001.png`] = png;
   }
-  return zip;
+  return makeTestZip(files);
 }
 
 /**
  * Build a chapter-update ZIP containing only the specified chapter numbers.
  * Suitable for type3 / runChapterMergePipeline.
  */
-async function buildChapterUpdateZip(chapterNumbers: number[]): Promise<JSZip> {
-  const zip = new JSZip();
+async function buildChapterUpdateZip(chapterNumbers: number[]): Promise<ZipReader> {
   const png = makeMinimalPng();
+  const files: Record<string, Uint8Array> = {};
   for (const n of chapterNumbers) {
     const chName = `Chapter ${String(n).padStart(3, '0')}`;
-    zip.file(`${chName}/001.png`, png);
+    files[`${chName}/001.png`] = png;
   }
-  return zip;
+  return makeTestZip(files);
 }
 
 beforeEach(async () => {

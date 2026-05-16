@@ -18,8 +18,8 @@
   "dependencies": {
     "@fontsource/cinzel": "^5.2.8",
     "@fontsource/cormorant-garamond": "^5.2.11",
+    "@zip.js/zip.js": "^2.8.26",
     "dexie": "^4.4.2",
-    "jszip": "^3.10.1",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
     "workbox-window": "^7.4.1",

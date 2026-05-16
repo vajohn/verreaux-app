@@ -1,4 +1,4 @@
-import type JSZip from 'jszip';
+import type { ZipReader } from '../../lib/zip';
 import { extractSortKey, extOf, stemOf } from '../../lib/naturalSort';
 import { isImage, getTopLevelFolders } from './typeDetector';
 
@@ -24,12 +24,13 @@ interface DirectChildren {
   folders: string[];
 }
 
-function getDirectChildren(zip: JSZip, folder: string): DirectChildren {
+function getDirectChildren(zip: ZipReader, folder: string): DirectChildren {
   const prefix = folder.endsWith('/') ? folder : `${folder}/`;
   const files = new Set<string>();
   const folders = new Set<string>();
-  zip.forEach((path) => {
-    if (!path.startsWith(prefix) || path === prefix) return;
+  for (const entry of zip.entries()) {
+    const path = entry.path;
+    if (!path.startsWith(prefix) || path === prefix) continue;
     const rest = path.slice(prefix.length);
     const parts = rest.split('/');
     if (parts.length === 1 && parts[0]) {
@@ -37,14 +38,14 @@ function getDirectChildren(zip: JSZip, folder: string): DirectChildren {
     } else if (parts.length >= 2 && parts[0]) {
       folders.add(`${prefix}${parts[0]}/`);
     }
-  });
+  }
   return { files: Array.from(files), folders: Array.from(folders) };
 }
 
 const COVER_RE = /^cover\.(webp|jpg|jpeg|png)$/i;
 
 export async function walkChapter(
-  zip: JSZip,
+  zip: ZipReader,
   chapterPath: string,
   order: number,
 ): Promise<ChapterEntry> {
@@ -61,7 +62,7 @@ export async function walkChapter(
   return { title, order, pages: imageFiles };
 }
 
-export async function walkSeries(zip: JSZip, seriesPath: string): Promise<SeriesEntry> {
+export async function walkSeries(zip: ZipReader, seriesPath: string): Promise<SeriesEntry> {
   const title = seriesPath.replace(/\/$/, '').split('/').pop() ?? 'Series';
   const { files, folders } = getDirectChildren(zip, seriesPath);
   const coverFile =
@@ -85,7 +86,7 @@ export async function walkSeries(zip: JSZip, seriesPath: string): Promise<Series
   };
 }
 
-export async function walkLibrary(zip: JSZip): Promise<SeriesEntry[]> {
+export async function walkLibrary(zip: ZipReader): Promise<SeriesEntry[]> {
   const topFolders = getTopLevelFolders(zip);
   return Promise.all(topFolders.map((f) => walkSeries(zip, f)));
 }
@@ -95,15 +96,16 @@ export async function walkLibrary(zip: JSZip): Promise<SeriesEntry[]> {
  * top-level folders, each folder being a chapter. Falls back to images in the
  * ZIP root grouped under one synthetic chapter when there are no folders.
  */
-export async function walkChapterUpdate(zip: JSZip): Promise<ChapterEntry[]> {
+export async function walkChapterUpdate(zip: ZipReader): Promise<ChapterEntry[]> {
   const topFolders = getTopLevelFolders(zip);
   if (topFolders.length === 0) {
     // Images at root — treat as a single chapter named "Chapter 1".
     const rootFiles: string[] = [];
-    zip.forEach((path) => {
-      if (path.includes('/')) return;
+    for (const entry of zip.entries()) {
+      const path = entry.path;
+      if (path.includes('/')) continue;
       if (isImage(path)) rootFiles.push(path);
-    });
+    }
     const pages = rootFiles
       .map((f) => ({ path: f, pageNumber: extractSortKey(stemOf(f)) }))
       .sort((a, b) => a.pageNumber - b.pageNumber);

@@ -1,5 +1,5 @@
 /// <reference lib="webworker" />
-import JSZip from 'jszip';
+import { openZip, type ZipReader } from '../../lib/zip';
 import { detectImportType, type ImportContext } from './typeDetector';
 import {
   runNewSeriesPipeline,
@@ -91,28 +91,28 @@ ctx.addEventListener('message', async (e: MessageEvent<WorkerInMessage>) => {
     hasTargetSeries: !!targetSeriesId,
   });
 
+  let reader: ZipReader | null = null;
   try {
-    let zip: JSZip;
     try {
-      logger.info('zip', 'JSZip.loadAsync begin');
+      logger.info('zip', 'openZip begin');
       const t0 = Date.now();
-      zip = await JSZip.loadAsync(file);
-      logger.info('zip', 'JSZip.loadAsync ok', {
+      reader = await openZip(file);
+      logger.info('zip', 'openZip ok', {
         ms: Date.now() - t0,
-        entryCount: Object.keys(zip.files).length,
+        entryCount: reader.entries().length,
       });
     } catch (err) {
-      logger.error('zip', 'JSZip.loadAsync failed', { error: err, fileSize: file.size });
+      logger.error('zip', 'openZip failed', { error: err, fileSize: file.size });
       throw new Error('This ZIP file could not be read. It may be corrupted or incomplete.');
     }
 
-    const importType = detectImportType(zip, context);
+    const importType = detectImportType(reader, context);
     logger.info('detect', 'import type resolved', { importType });
 
     let seriesCount = 0;
     if (importType === 'type1' || importType === 'type2') {
       seriesCount = await runNewSeriesPipeline(
-        zip,
+        reader,
         importType,
         activeProfileId,
         post,
@@ -124,7 +124,7 @@ ctx.addEventListener('message', async (e: MessageEvent<WorkerInMessage>) => {
         logger.error('detect', 'missing target series for chapter update');
         throw new Error('Missing target series for chapter update.');
       }
-      await runChapterMergePipeline(zip, targetSeriesId, activeProfileId, post, cancelToken, logger);
+      await runChapterMergePipeline(reader, targetSeriesId, activeProfileId, post, cancelToken, logger);
     }
 
     if (cancelToken.cancelled) {
@@ -143,5 +143,13 @@ ctx.addEventListener('message', async (e: MessageEvent<WorkerInMessage>) => {
     const message = err instanceof Error ? err.message : 'An unknown error occurred.';
     logger.error('finish', 'failed', { error: err });
     post({ type: 'ERROR', message });
+  } finally {
+    if (reader) {
+      try {
+        await reader.close();
+      } catch {
+        // Swallow close errors — we're already in the cleanup path.
+      }
+    }
   }
 });

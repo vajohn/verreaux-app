@@ -1,8 +1,11 @@
 /**
- * exportLibrary — generates a verreaux-library-YYYYMMDD.zip via JSZip on the main thread.
+ * exportLibrary — generates a verreaux-library-YYYYMMDD.zip via @zip.js/zip.js.
  *
- * WARNING: This can OOM on libraries > 2 GB. This is a known limitation; the user
- * is initiating this action explicitly and must ensure enough free RAM.
+ * Memory model: zip.js's ZipWriter streams entries as they're added — no
+ * intermediate full-archive buffer. Each blob is read into a BlobReader (which
+ * uses Blob.slice random access internally) and piped into the underlying
+ * BlobWriter. Old page blobs go out of scope after each `add()` resolves, so
+ * even very large libraries don't pile up in memory.
  *
  * Structure:
  *   <SeriesTitle>/
@@ -11,7 +14,7 @@
  *       001.jpg / 001.png    (original page blobs)
  *   progress.json            (reading progress for the active profile)
  */
-import JSZip from 'jszip';
+import { BlobReader, BlobWriter, TextReader, ZipWriter } from '../../lib/zip';
 import { db } from '../../db/db';
 
 function todayStr(): string {
@@ -27,82 +30,94 @@ function safeFileName(s: string): string {
 }
 
 export async function exportLibrary(profileId: string): Promise<void> {
-  const zip = new JSZip();
+  const blobWriter = new BlobWriter('application/zip');
+  // level: 0 = STORED. Page blobs are already-compressed images (webp/jpg/png)
+  // so re-deflating wastes CPU for negligible savings.
+  const zipWriter = new ZipWriter(blobWriter, { level: 0 });
 
-  const allSeries = await db.series.where('profileId').equals(profileId).toArray();
-  const progressRecords = await db.readingProgress.where('profileId').equals(profileId).toArray();
+  try {
+    const allSeries = await db.series.where('profileId').equals(profileId).toArray();
+    const progressRecords = await db.readingProgress.where('profileId').equals(profileId).toArray();
 
-  // Manifest per-series
-  const manifestEntries: object[] = [];
+    const manifestEntries: object[] = [];
 
-  for (const series of allSeries) {
-    const seriesFolder = zip.folder(safeFileName(series.title));
-    if (!seriesFolder) continue;
+    for (const series of allSeries) {
+      const seriesDir = safeFileName(series.title);
+      const chapters = await db.chapters.where('seriesId').equals(series.id).sortBy('order');
 
-    const chapters = await db.chapters.where('seriesId').equals(series.id).sortBy('order');
-
-    manifestEntries.push({
-      id: series.id,
-      title: series.title,
-      originalTitle: series.originalTitle,
-      chapterCount: series.chapterCount,
-      importedAt: series.importedAt,
-      lastReadAt: series.lastReadAt,
-    });
-
-    seriesFolder.file(
-      'manifest.json',
-      JSON.stringify({
+      manifestEntries.push({
         id: series.id,
         title: series.title,
         originalTitle: series.originalTitle,
-        chapters: chapters.map((c) => ({ id: c.id, title: c.title, order: c.order, pageCount: c.pageCount })),
-      }, null, 2),
-    );
+        chapterCount: series.chapterCount,
+        importedAt: series.importedAt,
+        lastReadAt: series.lastReadAt,
+      });
 
-    for (const chapter of chapters) {
-      const chFolder = seriesFolder.folder(safeFileName(chapter.title));
-      if (!chFolder) continue;
+      const seriesManifest = JSON.stringify(
+        {
+          id: series.id,
+          title: series.title,
+          originalTitle: series.originalTitle,
+          chapters: chapters.map((c) => ({
+            id: c.id,
+            title: c.title,
+            order: c.order,
+            pageCount: c.pageCount,
+          })),
+        },
+        null,
+        2,
+      );
+      await zipWriter.add(`${seriesDir}/manifest.json`, new TextReader(seriesManifest));
 
-      const pages = await db.pages.where('chapterId').equals(chapter.id).sortBy('pageNumber');
-      for (const page of pages) {
-        const blobRecord = await db.blobs.get(page.blobId);
-        if (!blobRecord) continue;
-        const ext = blobRecord.blob.type.includes('jpeg') ? 'jpg' : 'png';
-        const fname = `${String(page.pageNumber).padStart(3, '0')}.${ext}`;
-        const arrayBuffer = await blobRecord.blob.arrayBuffer();
-        chFolder.file(fname, arrayBuffer);
+      for (const chapter of chapters) {
+        const chDir = `${seriesDir}/${safeFileName(chapter.title)}`;
+        const pages = await db.pages.where('chapterId').equals(chapter.id).sortBy('pageNumber');
+        for (const page of pages) {
+          const blobRecord = await db.blobs.get(page.blobId);
+          if (!blobRecord) continue;
+          const ext = blobRecord.blob.type.includes('jpeg') ? 'jpg' : 'png';
+          const fname = `${String(page.pageNumber).padStart(3, '0')}.${ext}`;
+          await zipWriter.add(`${chDir}/${fname}`, new BlobReader(blobRecord.blob));
+        }
       }
     }
+
+    await zipWriter.add('manifest.json', new TextReader(JSON.stringify(manifestEntries, null, 2)));
+    await zipWriter.add(
+      'progress.json',
+      new TextReader(
+        JSON.stringify(
+          progressRecords.map((r) => ({
+            seriesId: r.seriesId,
+            currentChapterId: r.currentChapterId,
+            pageIndex: r.pageIndex,
+            manuallyMarked: r.manuallyMarked,
+            updatedAt: r.updatedAt,
+          })),
+          null,
+          2,
+        ),
+      ),
+    );
+
+    const blob = await zipWriter.close();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `verreaux-library-${todayStr()}.zip`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 10_000);
+  } catch (err) {
+    // Best-effort cleanup; close() is idempotent-ish but may throw if already closed.
+    try {
+      await zipWriter.close();
+    } catch {
+      // ignore
+    }
+    throw err;
   }
-
-  // Root manifest
-  zip.file('manifest.json', JSON.stringify(manifestEntries, null, 2));
-
-  // Progress JSON
-  zip.file(
-    'progress.json',
-    JSON.stringify(
-      progressRecords.map((r) => ({
-        seriesId: r.seriesId,
-        currentChapterId: r.currentChapterId,
-        pageIndex: r.pageIndex,
-        manuallyMarked: r.manuallyMarked,
-        updatedAt: r.updatedAt,
-      })),
-      null,
-      2,
-    ),
-  );
-
-  const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `verreaux-library-${todayStr()}.zip`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  // Revoke after a short delay to allow the download to start
-  setTimeout(() => URL.revokeObjectURL(url), 10_000);
 }

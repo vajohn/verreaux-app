@@ -56,7 +56,7 @@ export default defineConfig({
         manualChunks(id) {
           if (id.includes('node_modules')) {
             if (id.includes('dexie')) return 'dexie';
-            if (id.includes('jszip')) return 'jszip';
+            if (id.includes('@zip.js/zip.js')) return 'zipjs';
             if (id.includes('zustand')) return 'zustand';
             if (id.includes('react')) return 'vendor';
           }

@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import JSZip from 'jszip';
+import { makeTestZip } from '../helpers/makeTestZip';
+import type { ZipReader } from '../../src/lib/zip';
 import { db } from '../../src/db/db';
 import { runNewSeriesPipeline } from '../../src/features/import/importRuntime';
 import { detectImportType } from '../../src/features/import/typeDetector';
@@ -21,14 +22,15 @@ function makeMinimalPng(): Uint8Array {
   ]);
 }
 
-async function buildZip(name: string, chapters: number[]): Promise<JSZip> {
-  const zip = new JSZip();
+async function buildZip(name: string, chapters: number[]): Promise<ZipReader> {
   const png = makeMinimalPng();
-  zip.file(`${name}/cover.png`, png);
+  const files: Record<string, Uint8Array> = {
+    [`${name}/cover.png`]: png,
+  };
   for (const n of chapters) {
-    zip.file(`${name}/Chapter ${String(n).padStart(3, '0')}/001.png`, png);
+    files[`${name}/Chapter ${String(n).padStart(3, '0')}/001.png`] = png;
   }
-  return zip;
+  return makeTestZip(files);
 }
 
 beforeEach(async () => {

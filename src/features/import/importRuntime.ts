@@ -1,7 +1,7 @@
-import type JSZip from 'jszip';
+import type { ZipReader } from '../../lib/zip';
 import { db } from '../../db/db';
 import { uuid } from '../../lib/uuid';
-import { walkLibrary, walkChapterUpdate, type SeriesEntry } from './zipWalker';
+import { walkLibrary, walkChapterUpdate, type SeriesEntry, type ChapterEntry } from './zipWalker';
 import { normalizeTitle } from '../../db/repos/series.repo';
 import type { ImportType } from './typeDetector';
 import type { LogEntry } from '../../db/types';
@@ -39,16 +39,92 @@ const NULL_LOGGER: WorkerLogger = {
   error: () => undefined,
 };
 
-interface NewSeriesContext {
-  zip: JSZip;
-  activeProfileId: string;
-  emit: Emit;
-  cancel: CancelToken;
-  log: WorkerLogger;
+interface PreparedPage {
+  pageNumber: number;
+  blob: Blob;
+}
+
+/**
+ * Reads every page blob for a chapter and returns them in memory. The caller
+ * must drop the returned array before reading the next chapter so the GC can
+ * reclaim the blob memory — that is the entire point of doing one chapter at
+ * a time on a memory-constrained device like iOS Safari.
+ */
+async function preparePages(
+  zip: ZipReader,
+  chapter: ChapterEntry,
+  cancel: CancelToken,
+  log: WorkerLogger,
+  source: string,
+): Promise<PreparedPage[]> {
+  const pages: PreparedPage[] = [];
+  let missing = 0;
+  for (const page of chapter.pages) {
+    if (cancel.cancelled) throw new Error('CANCELLED');
+    if (!zip.has(page.path)) {
+      missing++;
+      continue;
+    }
+    try {
+      const blob = await zip.readBlob(page.path);
+      pages.push({ pageNumber: page.pageNumber, blob });
+    } catch (err) {
+      log.error('blob', `page readBlob failed (${source})`, {
+        path: page.path,
+        chapter: chapter.title,
+        error: err,
+      });
+      throw err;
+    }
+  }
+  if (missing > 0) {
+    log.warn('blob', `missing page entries in zip (${source})`, {
+      chapter: chapter.title,
+      missing,
+      ofTotal: chapter.pages.length,
+    });
+  }
+  return pages;
+}
+
+/**
+ * Writes one chapter + its pages + its blobs as a single Dexie transaction.
+ * Pages are passed in already-read so the txn contains only IDB work — mixing
+ * non-IDB awaits in a Dexie txn triggers PrematureCommitError.
+ */
+async function writeChapterTransaction(
+  seriesId: string,
+  activeProfileId: string,
+  chapter: { title: string; order: number; pages: PreparedPage[] },
+  cancel: CancelToken,
+): Promise<void> {
+  await db.transaction('rw', [db.chapters, db.pages, db.blobs], async () => {
+    if (cancel.cancelled) throw new Error('CANCELLED');
+    const chapterId = uuid();
+    await db.chapters.add({
+      id: chapterId,
+      seriesId,
+      profileId: activeProfileId,
+      title: chapter.title,
+      originalTitle: chapter.title,
+      order: chapter.order,
+      pageCount: chapter.pages.length,
+    });
+    for (const page of chapter.pages) {
+      const blobId = uuid();
+      await db.blobs.add({ id: blobId, blob: page.blob });
+      await db.pages.add({
+        id: uuid(),
+        chapterId,
+        pageNumber: page.pageNumber,
+        blobId,
+      });
+    }
+  });
 }
 
 export async function runNewSeriesPipeline(
-  zip: JSZip,
+  zip: ZipReader,
   importType: ImportType,
   activeProfileId: string,
   emit: Emit,
@@ -75,13 +151,7 @@ export async function runNewSeriesPipeline(
       hasCover: !!entry.coverPath,
     });
     try {
-      await writeSeriesTransaction(
-        { zip, activeProfileId, emit, cancel, log },
-        entry,
-        totalChapters,
-        startTime,
-        counter,
-      );
+      await importSeries(zip, entry, activeProfileId, emit, cancel, log, totalChapters, startTime, counter);
       log.info('series', 'done', { title: entry.title });
     } catch (err) {
       log.error('series', 'failed', { title: entry.title, error: err });
@@ -92,52 +162,37 @@ export async function runNewSeriesPipeline(
   return seriesList.length;
 }
 
-async function writeSeriesTransaction(
-  ctx: NewSeriesContext,
+async function importSeries(
+  zip: ZipReader,
   entry: SeriesEntry,
+  activeProfileId: string,
+  emit: Emit,
+  cancel: CancelToken,
+  log: WorkerLogger,
   totalChapters: number,
   startTime: number,
   counter: { value: number },
 ): Promise<void> {
-  const { zip, activeProfileId, emit, cancel, log } = ctx;
   const incomingNormalized = normalizeTitle(entry.title);
 
-  // Look up an existing series for merge (Type 1 includes-existing handling).
+  // Resolve existing series for merge (Type 1 includes-existing handling).
   const existing = await db.series
     .where('[profileId+normalizedTitle]')
     .equals([activeProfileId, incomingNormalized])
     .first();
 
-  // Pre-read all blobs from JSZip OUTSIDE the Dexie transaction. Mixing
-  // non-IDB awaits (JSZip's blob() returns a microtask-resolved Promise)
-  // inside a Dexie transaction triggers PrematureCommitError because the
-  // implicit IDB transaction commits between the await and the next
-  // IDB call.
+  // Read cover blob outside any txn. Cover is small and held only across this
+  // series; goes out of scope once this function returns.
   let coverBlob: Blob | null = null;
   let usedFallbackCover = false;
-  if (entry.coverPath) {
-    const z = zip.file(entry.coverPath);
-    if (z) coverBlob = await z.async('blob');
-  } else if (!existing && entry.chapters[0]?.pages[0]) {
-    const z = zip.file(entry.chapters[0].pages[0].path);
-    if (z) {
-      coverBlob = await z.async('blob');
-      usedFallbackCover = true;
-    }
+  if (entry.coverPath && zip.has(entry.coverPath)) {
+    coverBlob = await zip.readBlob(entry.coverPath);
+  } else if (!existing && entry.chapters[0]?.pages[0] && zip.has(entry.chapters[0].pages[0].path)) {
+    coverBlob = await zip.readBlob(entry.chapters[0].pages[0].path);
+    usedFallbackCover = true;
   }
 
-  interface PreparedPage {
-    pageNumber: number;
-    blob: Blob;
-  }
-  interface PreparedChapter {
-    title: string;
-    order: number;
-    pages: PreparedPage[];
-  }
-
-  // Skip chapters that already exist when merging.
-  const chaptersToWrite: PreparedChapter[] = [];
+  // Skip-set for chapters that already exist when merging.
   const skipExistingOrders = new Set<number>();
   if (existing) {
     const existingChapters = await db.chapters
@@ -147,71 +202,36 @@ async function writeSeriesTransaction(
     for (const c of existingChapters) skipExistingOrders.add(c.order);
   }
 
-  for (const chapter of entry.chapters) {
-    if (cancel.cancelled) throw new Error('CANCELLED');
-    if (skipExistingOrders.has(chapter.order)) continue;
-    const pages: PreparedPage[] = [];
-    let missing = 0;
-    for (const page of chapter.pages) {
-      if (cancel.cancelled) throw new Error('CANCELLED');
-      const z = zip.file(page.path);
-      if (!z) {
-        missing++;
-        continue;
-      }
-      try {
-        const blob = await z.async('blob');
-        pages.push({ pageNumber: page.pageNumber, blob });
-      } catch (err) {
-        log.error('blob', 'page blob() failed', {
-          path: page.path,
-          chapter: chapter.title,
-          error: err,
-        });
-        throw err;
-      }
-    }
-    if (missing > 0) {
-      log.warn('blob', 'missing page entries in zip', {
-        chapter: chapter.title,
-        missing,
-        ofTotal: chapter.pages.length,
-      });
-    }
-    chaptersToWrite.push({ title: chapter.title, order: chapter.order, pages });
-  }
-
-  await db.transaction('rw', [db.series, db.chapters, db.pages, db.blobs], async () => {
-    let coverImageId: string | null = existing?.coverImageId ?? null;
-
-    if (coverBlob) {
-      const id = uuid();
-      await db.blobs.add({ id, blob: coverBlob });
-      // Only replace existing cover when we actually got one from the ZIP
-      // (cover.* file present, not the chapter-1 fallback for an existing series).
-      if (!existing) {
-        coverImageId = id;
-      } else if (!usedFallbackCover) {
-        if (existing.coverImageId && existing.coverImageId !== id) {
-          await db.blobs.delete(existing.coverImageId);
+  // Series-level txn: create or update the series row + cover blob.
+  const seriesId = await db.transaction(
+    'rw',
+    [db.series, db.blobs],
+    async (): Promise<string> => {
+      let coverImageId: string | null = existing?.coverImageId ?? null;
+      if (coverBlob) {
+        const id = uuid();
+        await db.blobs.add({ id, blob: coverBlob });
+        if (!existing) {
+          coverImageId = id;
+        } else if (!usedFallbackCover) {
+          if (existing.coverImageId && existing.coverImageId !== id) {
+            await db.blobs.delete(existing.coverImageId);
+          }
+          coverImageId = id;
         }
-        coverImageId = id;
       }
-    }
-
-    let seriesId: string;
-    if (existing) {
-      seriesId = existing.id;
-      if (coverImageId && coverImageId !== existing.coverImageId) {
-        await db.series.update(seriesId, {
-          coverImageId,
-          coverSource: 'imported',
-        });
+      if (existing) {
+        if (coverImageId && coverImageId !== existing.coverImageId) {
+          await db.series.update(existing.id, {
+            coverImageId,
+            coverSource: 'imported',
+          });
+        }
+        return existing.id;
       }
-    } else {
-      seriesId = uuid();
+      const newId = uuid();
       await db.series.add({
-        id: seriesId,
+        id: newId,
         profileId: activeProfileId,
         title: entry.title,
         originalTitle: entry.title,
@@ -227,58 +247,56 @@ async function writeSeriesTransaction(
         importedAt: Date.now(),
         sortOrder: Date.now(),
       });
-    }
+      return newId;
+    },
+  );
 
-    // First, count the chapters skipped (no-op increments to keep counter consistent).
-    counter.value += entry.chapters.length - chaptersToWrite.length;
+  // Release the cover reference now that it's persisted.
+  coverBlob = null;
 
-    for (const chapter of chaptersToWrite) {
-      if (cancel.cancelled) throw new Error('CANCELLED');
-      const chapterId = uuid();
-      await db.chapters.add({
-        id: chapterId,
-        seriesId,
-        profileId: activeProfileId,
-        title: chapter.title,
-        originalTitle: chapter.title,
-        order: chapter.order,
-        pageCount: chapter.pages.length,
-      });
+  // Count chapters skipped so the progress counter stays consistent.
+  const skippedHere = entry.chapters.filter((c) => skipExistingOrders.has(c.order)).length;
+  counter.value += skippedHere;
 
-      for (const page of chapter.pages) {
-        const blobId = uuid();
-        await db.blobs.add({ id: blobId, blob: page.blob });
-        await db.pages.add({
-          id: uuid(),
-          chapterId,
-          pageNumber: page.pageNumber,
-          blobId,
-        });
-      }
+  // Per-chapter loop: read this chapter's blobs, write them in one txn, then
+  // drop them. iOS can reclaim the memory before we start the next chapter.
+  for (const chapter of entry.chapters) {
+    if (cancel.cancelled) throw new Error('CANCELLED');
+    if (skipExistingOrders.has(chapter.order)) continue;
 
-      counter.value++;
-      const elapsed = Math.max(1, Date.now() - startTime);
-      const rate = counter.value / elapsed;
-      const remaining = totalChapters - counter.value;
-      const eta = rate > 0 ? Math.round(remaining / rate) : null;
+    const pages = await preparePages(zip, chapter, cancel, log, 'new-series');
+    await writeChapterTransaction(
+      seriesId,
+      activeProfileId,
+      { title: chapter.title, order: chapter.order, pages },
+      cancel,
+    );
 
-      emit({
-        type: 'PROGRESS',
-        seriesName: entry.title,
-        chapterIndex: counter.value,
-        chapterTotal: totalChapters,
-        pct: Math.round((counter.value / totalChapters) * 100),
-        eta,
-      });
-    }
+    counter.value++;
+    const elapsed = Math.max(1, Date.now() - startTime);
+    const rate = counter.value / elapsed;
+    const remaining = totalChapters - counter.value;
+    const eta = rate > 0 ? Math.round(remaining / rate) : null;
 
+    emit({
+      type: 'PROGRESS',
+      seriesName: entry.title,
+      chapterIndex: counter.value,
+      chapterTotal: totalChapters,
+      pct: Math.round((counter.value / totalChapters) * 100),
+      eta,
+    });
+  }
+
+  // Final small txn: refresh chapterCount.
+  await db.transaction('rw', [db.series, db.chapters], async () => {
     const newCount = await db.chapters.where('seriesId').equals(seriesId).count();
     await db.series.update(seriesId, { chapterCount: newCount });
   });
 }
 
 export async function runChapterMergePipeline(
-  zip: JSZip,
+  zip: ZipReader,
   targetSeriesId: string,
   activeProfileId: string,
   emit: Emit,
@@ -291,107 +309,45 @@ export async function runChapterMergePipeline(
   const startTime = Date.now();
   const counter = { value: 0 };
 
-  // Determine which chapter orders already exist so we skip them during prefetch.
+  const series = await db.series.get(targetSeriesId);
+  if (!series) throw new Error('Target series not found.');
+
+  // Skip chapter orders that already exist on the target series.
   const existingOrders = new Set<number>();
   const existingChaptersInDb = await db.chapters.where('seriesId').equals(targetSeriesId).toArray();
   for (const c of existingChaptersInDb) existingOrders.add(c.order);
 
-  // Phase 1: Pre-read all page blobs from JSZip OUTSIDE the Dexie transaction.
-  // Mixing non-IDB awaits (JSZip's blob() returns a microtask Promise) inside a
-  // Dexie transaction triggers PrematureCommitError. Same pattern as writeSeriesTransaction.
-  interface PreparedPage {
-    pageNumber: number;
-    blob: Blob;
-  }
-  interface PreparedChapter {
-    title: string;
-    order: number;
-    pages: PreparedPage[];
-  }
+  const skippedHere = chapters.filter((c) => existingOrders.has(c.order)).length;
+  counter.value += skippedHere;
 
-  const chaptersToWrite: PreparedChapter[] = [];
   for (const chapter of chapters) {
     if (cancel.cancelled) throw new Error('CANCELLED');
     if (existingOrders.has(chapter.order)) continue;
-    const pages: PreparedPage[] = [];
-    let missing = 0;
-    for (const page of chapter.pages) {
-      if (cancel.cancelled) throw new Error('CANCELLED');
-      const z = zip.file(page.path);
-      if (!z) {
-        missing++;
-        continue;
-      }
-      try {
-        const blob = await z.async('blob');
-        pages.push({ pageNumber: page.pageNumber, blob });
-      } catch (err) {
-        log.error('blob', 'page blob() failed (merge)', {
-          path: page.path,
-          chapter: chapter.title,
-          error: err,
-        });
-        throw err;
-      }
-    }
-    if (missing > 0) {
-      log.warn('blob', 'missing page entries in zip (merge)', {
-        chapter: chapter.title,
-        missing,
-        ofTotal: chapter.pages.length,
-      });
-    }
-    chaptersToWrite.push({ title: chapter.title, order: chapter.order, pages });
+
+    const pages = await preparePages(zip, chapter, cancel, log, 'merge');
+    await writeChapterTransaction(
+      targetSeriesId,
+      activeProfileId,
+      { title: chapter.title, order: chapter.order, pages },
+      cancel,
+    );
+
+    counter.value++;
+    const elapsed = Math.max(1, Date.now() - startTime);
+    const rate = counter.value / elapsed;
+    const remaining = totalChapters - counter.value;
+    const eta = rate > 0 ? Math.round(remaining / rate) : null;
+    emit({
+      type: 'PROGRESS',
+      seriesName: series.title,
+      chapterIndex: counter.value,
+      chapterTotal: totalChapters,
+      pct: Math.round((counter.value / totalChapters) * 100),
+      eta,
+    });
   }
 
-  // Phase 2: Only IDB writes inside the Dexie transaction.
-  await db.transaction('rw', [db.series, db.chapters, db.pages, db.blobs], async () => {
-    const series = await db.series.get(targetSeriesId);
-    if (!series) throw new Error('Target series not found.');
-
-    // Count skipped chapters so the progress counter stays consistent.
-    counter.value += chapters.length - chaptersToWrite.length;
-
-    for (const chapter of chaptersToWrite) {
-      if (cancel.cancelled) throw new Error('CANCELLED');
-
-      const chapterId = uuid();
-      await db.chapters.add({
-        id: chapterId,
-        seriesId: targetSeriesId,
-        profileId: activeProfileId,
-        title: chapter.title,
-        originalTitle: chapter.title,
-        order: chapter.order,
-        pageCount: chapter.pages.length,
-      });
-
-      for (const page of chapter.pages) {
-        const blobId = uuid();
-        await db.blobs.add({ id: blobId, blob: page.blob });
-        await db.pages.add({
-          id: uuid(),
-          chapterId,
-          pageNumber: page.pageNumber,
-          blobId,
-        });
-      }
-
-      counter.value++;
-      const elapsed = Math.max(1, Date.now() - startTime);
-      const rate = counter.value / elapsed;
-      const remaining = totalChapters - counter.value;
-      const eta = rate > 0 ? Math.round(remaining / rate) : null;
-      emit({
-        type: 'PROGRESS',
-        seriesName: series.title,
-        chapterIndex: counter.value,
-        chapterTotal: totalChapters,
-        pct: Math.round((counter.value / totalChapters) * 100),
-        eta,
-      });
-    }
-
+  await db.transaction('rw', [db.series, db.chapters], async () => {
     const newCount = await db.chapters.where('seriesId').equals(targetSeriesId).count();
     await db.series.update(targetSeriesId, { chapterCount: newCount });
   });
