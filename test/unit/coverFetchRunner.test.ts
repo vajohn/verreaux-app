@@ -139,6 +139,112 @@ describe('runPendingCoverFetches', () => {
     expect(updated?.pendingCoverUrl).toBeNull();
   });
 
+  it('succeeds when server lies about Content-Type but body is a valid PNG', async () => {
+    const seriesId = 'series-octet-stream';
+    await db.series.add({
+      id: seriesId,
+      profileId: PROFILE,
+      title: 'Octet Series',
+      originalTitle: 'Octet Series',
+      normalizedTitle: 'octet series',
+      coverImageId: null,
+      coverBlobId: null,
+      pendingCoverUrl: 'https://cdn.example.com/short/abc',
+      coverFetchAttempts: 0,
+      coverSource: 'url',
+      chapterCount: 0,
+      lastReadChapterId: null,
+      lastReadAt: null,
+      importedAt: Date.now(),
+      sortOrder: 1,
+    });
+
+    const pngBlob = new Blob([minimalPng()], { type: 'application/octet-stream' });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        headers: { get: () => 'application/octet-stream' },
+        blob: () => Promise.resolve(pngBlob),
+      }),
+    );
+
+    await runPendingCoverFetches();
+
+    const updated = await db.series.get(seriesId);
+    expect(updated?.pendingCoverUrl).toBeNull();
+    expect(updated?.coverBlobId).toBeTruthy();
+    expect(updated?.coverSource).toBe('url');
+  });
+
+  it('rejects when body is HTML even with image content-type', async () => {
+    const seriesId = 'series-html-body';
+    await db.series.add({
+      id: seriesId,
+      profileId: PROFILE,
+      title: 'HTML Series',
+      originalTitle: 'HTML Series',
+      normalizedTitle: 'html series',
+      coverImageId: null,
+      coverBlobId: null,
+      pendingCoverUrl: 'https://example.com/error.png',
+      coverFetchAttempts: 0,
+      coverSource: 'url',
+      chapterCount: 0,
+      lastReadChapterId: null,
+      lastReadAt: null,
+      importedAt: Date.now(),
+      sortOrder: 1,
+    });
+
+    const htmlBlob = new Blob(['<!doctype html><html><body>Not Found</body></html>'], {
+      type: 'image/png',
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        headers: { get: () => 'image/png' },
+        blob: () => Promise.resolve(htmlBlob),
+      }),
+    );
+
+    await runPendingCoverFetches();
+
+    const updated = await db.series.get(seriesId);
+    expect(updated?.coverBlobId).toBeNull();
+    expect(updated?.coverFetchAttempts).toBe(1);
+  });
+
+  it('increments attempts on TypeError (CORS / network failure)', async () => {
+    const seriesId = 'series-typeerror';
+    await db.series.add({
+      id: seriesId,
+      profileId: PROFILE,
+      title: 'CORS Series',
+      originalTitle: 'CORS Series',
+      normalizedTitle: 'cors series',
+      coverImageId: null,
+      coverBlobId: null,
+      pendingCoverUrl: 'https://blocked.example.com/cover',
+      coverFetchAttempts: 0,
+      coverSource: 'url',
+      chapterCount: 0,
+      lastReadChapterId: null,
+      lastReadAt: null,
+      importedAt: Date.now(),
+      sortOrder: 1,
+    });
+
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')));
+
+    await runPendingCoverFetches();
+
+    const updated = await db.series.get(seriesId);
+    expect(updated?.coverFetchAttempts).toBe(1);
+    expect(updated?.coverBlobId).toBeNull();
+  });
+
   it('skips fetch when offline', async () => {
     // Override onLine to false — no series in DB for this test, but we verify
     // that runPendingCoverFetches returns early before any fetch.

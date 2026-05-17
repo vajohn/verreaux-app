@@ -20,6 +20,7 @@ import {
 import { updateChapterTitle } from '../../db/repos/chapters.repo';
 import { upsertProgress, getProgress, clearSeriesProgress } from '../../db/repos/progress.repo';
 import { addBlob } from '../../db/repos/blobs.repo';
+import { sniffImageType } from './imageSniff';
 import { useSeriesProgress } from '../library/useSeriesProgress';
 import { formatRelativeTime } from '../../lib/formatRelativeTime';
 import { formatBytes } from '../../lib/formatBytes';
@@ -55,11 +56,12 @@ export function SeriesScreen({ seriesId }: SeriesScreenProps) {
   const [editingTitle, setEditingTitle] = useState<{ kind: 'series' | 'chapter'; id: string; value: string } | null>(null);
   const titleInputRef = useRef<HTMLInputElement | null>(null);
 
-  // Cover URL editing
+  // Cover editing (URL or device file)
   const [coverUrlSheet, setCoverUrlSheet] = useState(false);
   const [coverUrlInput, setCoverUrlInput] = useState('');
   const [coverUrlStatus, setCoverUrlStatus] = useState<'idle' | 'fetching' | 'error' | 'offline'>('idle');
   const [coverUrlError, setCoverUrlError] = useState('');
+  const coverFileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     void loadSeries(seriesId);
@@ -186,6 +188,18 @@ export function SeriesScreen({ seriesId }: SeriesScreenProps) {
     setOverflowTarget(null);
   }
 
+  const MAX_COVER_BYTES = 5 * 1024 * 1024;
+
+  async function commitCoverBlob(blob: Blob): Promise<void> {
+    const newBlobId = await addBlob(blob);
+    await setCoverBlobOverride(seriesId, newBlobId, 'url');
+    await loadSeries(seriesId);
+    setCoverUrlSheet(false);
+    setCoverUrlInput('');
+    setCoverUrlStatus('idle');
+    setCoverUrlError('');
+  }
+
   // Cover URL submit
   async function handleCoverUrlSubmit(): Promise<void> {
     const url = coverUrlInput.trim();
@@ -210,27 +224,72 @@ export function SeriesScreen({ seriesId }: SeriesScreenProps) {
     setCoverUrlError('');
     try {
       const resp = await fetch(url);
-      const contentType = resp.headers.get('content-type') ?? '';
-      if (!contentType.startsWith('image/')) {
+      if (!resp.ok) {
         setCoverUrlStatus('error');
-        setCoverUrlError('URL does not point to an image');
+        setCoverUrlError(`Server returned ${resp.status}. Try a different link.`);
         return;
       }
       const blob = await resp.blob();
-      if (blob.size > 5 * 1024 * 1024) {
+      if (blob.size === 0) {
         setCoverUrlStatus('error');
-        setCoverUrlError('Image exceeds 5 MB limit');
+        setCoverUrlError('Server returned an empty response.');
         return;
       }
-      const newBlobId = await addBlob(blob);
-      await setCoverBlobOverride(seriesId, newBlobId, 'url');
-      await loadSeries(seriesId);
-      setCoverUrlSheet(false);
-      setCoverUrlInput('');
-      setCoverUrlStatus('idle');
+      if (blob.size > MAX_COVER_BYTES) {
+        setCoverUrlStatus('error');
+        setCoverUrlError('Image exceeds 5 MB limit.');
+        return;
+      }
+      const sniff = await sniffImageType(blob);
+      if (sniff.kind === 'unsupported') {
+        setCoverUrlStatus('error');
+        setCoverUrlError(sniff.reason);
+        return;
+      }
+      await commitCoverBlob(blob);
+    } catch (err) {
+      setCoverUrlStatus('error');
+      if (err instanceof TypeError) {
+        // Browser-level network/CORS failure — opaque response is unreadable.
+        setCoverUrlError(
+          "Can't reach this link from the browser (often a CORS block). Download the image and use 'Pick from device'.",
+        );
+      } else {
+        setCoverUrlError('Failed to fetch image.');
+      }
+    }
+  }
+
+  // Cover file pick (device)
+  async function handleCoverFilePick(e: React.ChangeEvent<HTMLInputElement>): Promise<void> {
+    const file = e.target.files?.[0];
+    // Reset the input so picking the same file twice still fires onChange.
+    e.target.value = '';
+    if (!file) return;
+
+    setCoverUrlStatus('fetching');
+    setCoverUrlError('');
+    try {
+      if (file.size === 0) {
+        setCoverUrlStatus('error');
+        setCoverUrlError('Selected file is empty.');
+        return;
+      }
+      if (file.size > MAX_COVER_BYTES) {
+        setCoverUrlStatus('error');
+        setCoverUrlError('Image exceeds 5 MB limit.');
+        return;
+      }
+      const sniff = await sniffImageType(file);
+      if (sniff.kind === 'unsupported') {
+        setCoverUrlStatus('error');
+        setCoverUrlError(sniff.reason);
+        return;
+      }
+      await commitCoverBlob(file);
     } catch {
       setCoverUrlStatus('error');
-      setCoverUrlError('Failed to fetch image');
+      setCoverUrlError('Could not read the selected file.');
     }
   }
 
@@ -504,22 +563,41 @@ export function SeriesScreen({ seriesId }: SeriesScreenProps) {
         </div>
       )}
 
-      {/* Cover URL edit sheet */}
+      {/* Cover edit sheet (URL or device file) */}
       {coverUrlSheet && (
         <div className="confirm-sheet" role="dialog" aria-modal="true">
           <div className="confirm-sheet__inner">
             <div className="type-section-label" style={{ color: 'var(--color-gold)' }}>
-              Edit Cover URL
+              Edit Cover
             </div>
             <input
               className="series-title-input type-body"
               type="url"
-              placeholder="https://example.com/cover.jpg"
+              placeholder="https://… (paste image link)"
               value={coverUrlInput}
               onChange={(e) => setCoverUrlInput(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') { void handleCoverUrlSubmit(); } }}
               autoFocus
             />
+            <div className="type-nav-label" style={{ color: 'var(--color-text-muted)', marginTop: 4 }}>
+              Some short links may be blocked by the browser — use "Pick from device" if a link fails.
+            </div>
+            <input
+              ref={coverFileInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp,image/gif,image/avif"
+              style={{ display: 'none' }}
+              onChange={(e) => void handleCoverFilePick(e)}
+            />
+            <div style={{ marginTop: 12 }}>
+              <Button
+                variant="ghost"
+                onClick={() => coverFileInputRef.current?.click()}
+                disabled={coverUrlStatus === 'fetching'}
+              >
+                Pick from device
+              </Button>
+            </div>
             {coverUrlStatus === 'error' && (
               <div className="type-body" style={{ color: 'var(--color-gold)' }}>
                 {coverUrlError}
@@ -544,7 +622,7 @@ export function SeriesScreen({ seriesId }: SeriesScreenProps) {
                 onClick={() => void handleCoverUrlSubmit()}
                 disabled={coverUrlStatus === 'fetching'}
               >
-                {coverUrlStatus === 'fetching' ? 'Fetching…' : 'Save'}
+                {coverUrlStatus === 'fetching' ? 'Working…' : 'Save URL'}
               </Button>
             </div>
           </div>

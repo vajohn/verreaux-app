@@ -10,17 +10,19 @@
 import { db } from '../../db/db';
 import { addBlob } from '../../db/repos/blobs.repo';
 import { setCoverBlobOverride } from '../../db/repos/series.repo';
+import { sniffImageType } from './imageSniff';
 
 const MAX_ATTEMPTS = 3;
+const MAX_BYTES = 5 * 1024 * 1024;
 
 async function attemptFetch(seriesId: string, url: string): Promise<boolean> {
   try {
     const resp = await fetch(url);
     if (!resp.ok) return false;
-    const contentType = resp.headers.get('content-type') ?? '';
-    if (!contentType.startsWith('image/')) return false;
     const blob = await resp.blob();
-    if (blob.size > 5 * 1024 * 1024) return false;
+    if (blob.size === 0 || blob.size > MAX_BYTES) return false;
+    const sniff = await sniffImageType(blob);
+    if (sniff.kind === 'unsupported') return false;
     const blobId = await addBlob(blob);
     await setCoverBlobOverride(seriesId, blobId, 'url');
     return true;
