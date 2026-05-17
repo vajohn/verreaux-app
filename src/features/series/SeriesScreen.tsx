@@ -293,8 +293,16 @@ export function SeriesScreen({ seriesId }: SeriesScreenProps) {
     }
   }
 
+  // A chapter is "read" if it was manually marked, or if it sits at-or-below
+  // the current progress chapter in chapter order. This matches the formula
+  // used by useSeriesProgress for the read-count, so the per-chapter
+  // checkmarks and the "N / total" tally stay in sync.
+  const currentChapterOrder = currentChapterId
+    ? chapters.find((c) => c.id === currentChapterId)?.order ?? null
+    : null;
   const isChapterRead = (c: Chapter): boolean =>
-    manuallyReadIds.has(c.id) || c.id === currentChapterId;
+    manuallyReadIds.has(c.id) ||
+    (currentChapterOrder !== null && c.order <= currentChapterOrder);
 
   return (
     <div className="screen-root series-screen">

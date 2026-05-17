@@ -5,6 +5,13 @@
   overflow: hidden;
 }
 
+/* Suppress the global ::after top vignette (defined in ui/global.css) while
+   the reader is active — it would otherwise darken the top ~180px of the
+   manhwa page even with the toolbar hidden. */
+body:has(.reader-root)::after {
+  display: none;
+}
+
 .reader-scroll {
   width: 100%;
   height: 100vh;

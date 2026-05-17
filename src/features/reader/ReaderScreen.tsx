@@ -47,6 +47,11 @@ export function ReaderScreen({ seriesId, chapterId }: ReaderScreenProps) {
   }, [pages, currentIndex, chapters]);
 
   // Load chapters + pages.
+  //
+  // When `autoNextChapter` is ON we concatenate every subsequent chapter
+  // into one flat scroll (seamless reader).  When OFF we stop after the
+  // current chapter, so the end-of-chapter card halts the reader and
+  // requires an explicit Next.
   useEffect(() => {
     let cancelled = false;
     async function load(): Promise<void> {
@@ -56,14 +61,13 @@ export function ReaderScreen({ seriesId, chapterId }: ReaderScreenProps) {
       if (cancelled) return;
       setChapters(chs);
 
-      // Build the flat page list starting at the requested chapter, then
-      // continuing through subsequent chapters.
       const startIdx = Math.max(
         0,
         chs.findIndex((c) => c.id === chapterId),
       );
+      const endIdx = settings.autoNextChapter ? chs.length : startIdx + 1;
       const flat: PageMeta[] = [];
-      for (let i = startIdx; i < chs.length; i++) {
+      for (let i = startIdx; i < endIdx; i++) {
         const cps = await getPagesByChapterId(chs[i]!.id);
         for (const p of cps) {
           flat.push({
@@ -80,7 +84,7 @@ export function ReaderScreen({ seriesId, chapterId }: ReaderScreenProps) {
     return () => {
       cancelled = true;
     };
-  }, [seriesId, chapterId]);
+  }, [seriesId, chapterId, settings.autoNextChapter]);
 
   // Load bookmarks for this series.
   const loadBookmarks = useCallback(async () => {
