@@ -143,10 +143,22 @@ export function SeriesScreen({ seriesId }: SeriesScreenProps) {
   const continueChapter = currentChapterId
     ? chapters.find((c) => c.id === currentChapterId) ?? firstChapter
     : firstChapter;
+  // When all chapters have been wiped (e.g. via "Delete read chapters") but
+  // we still have the breadcrumb pair (lastReadChapterOrder + lastKnownMaxOrder),
+  // surface that snapshot so the header keeps showing e.g. "202 / 204"
+  // instead of "0 / 0" until reimport restores the live counts.
+  const showPreservedSnapshot =
+    seriesProgress.totalChapters === 0 &&
+    currentSeries.lastReadChapterOrder !== null &&
+    currentSeries.lastKnownMaxOrder !== null;
+  const displayRead = showPreservedSnapshot
+    ? (currentSeries.lastReadChapterOrder as number)
+    : seriesProgress.readChapters;
+  const displayTotal = showPreservedSnapshot
+    ? (currentSeries.lastKnownMaxOrder as number)
+    : seriesProgress.totalChapters;
   const pct =
-    seriesProgress.totalChapters > 0
-      ? seriesProgress.readChapters / seriesProgress.totalChapters
-      : 0;
+    displayTotal > 0 ? displayRead / displayTotal : 0;
 
   // Mark chapter read/unread
   async function handleMarkRead(chapter: Chapter, markRead: boolean): Promise<void> {
@@ -375,12 +387,11 @@ export function SeriesScreen({ seriesId }: SeriesScreenProps) {
             <div className="type-card-title series-hero__title">{currentSeries.title}</div>
           )}
           <div className="type-meta-italic series-hero__meta">
-            {seriesProgress.totalChapters} chapter
-            {seriesProgress.totalChapters === 1 ? '' : 's'}
+            {displayTotal} chapter{displayTotal === 1 ? '' : 's'}
             {currentSeries.lastReadAt && ` — ${formatRelativeTime(currentSeries.lastReadAt)}`}
           </div>
           <div className="type-progress-count">
-            {seriesProgress.readChapters} / {seriesProgress.totalChapters}
+            {displayRead} / {displayTotal}
           </div>
           <ProgressBar value={pct} />
           <div className="series-hero__cta">

@@ -29,6 +29,7 @@ export async function createSeries(input: CreateSeriesInput): Promise<Series> {
     lastReadChapterId: null,
     lastReadAt: null,
     lastReadChapterOrder: null,
+    lastKnownMaxOrder: null,
     importedAt: Date.now(),
     sortOrder: Date.now(),
   };
@@ -205,6 +206,16 @@ export async function deleteReadChapters(
         .equals([profileId, seriesId])
         .delete();
 
+      // Snapshot the highest chapter.order so the cleared-state UI can show
+      // "202 / 204" when chapterCount eventually hits 0. Deleted (read)
+      // chapters max out at current.order; unread chapters above are still
+      // in the table after the delete, so take the max of the two.
+      const lastUnread = await db.chapters
+        .where('[seriesId+order]')
+        .between([seriesId, current.order], [seriesId, Infinity], false, true)
+        .last();
+      const maxOrder = Math.max(current.order, lastUnread?.order ?? current.order);
+
       const newCount = await db.chapters.where('seriesId').equals(seriesId).count();
       await db.series.update(seriesId, {
         chapterCount: newCount,
@@ -214,6 +225,9 @@ export async function deleteReadChapters(
         // we can resume at the same chapter. The chapter row itself is being
         // deleted, but its `order` is a stable per-series key.
         lastReadChapterOrder: current.order,
+        // Snapshot of max chapter.order at clear-time so the UI can show
+        // a meaningful "lastRead / lastKnown" pair after everything is wiped.
+        lastKnownMaxOrder: maxOrder,
       });
 
       return { chaptersDeleted: chapterIds.length, bytesFreed };

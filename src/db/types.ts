@@ -31,6 +31,14 @@ export interface Series {
    * `lastReadChapterId` to the new chapter row with the same order.
    */
   lastReadChapterOrder: number | null;
+  /**
+   * Snapshot of the highest `chapter.order` in the series at the moment of
+   * the last `deleteReadChapters`. Paired with `lastReadChapterOrder`, this
+   * lets the cleared-state UI display e.g. "202 / 204" instead of "0 / 0"
+   * after all chapters have been wiped, so the user still sees where they
+   * left off before reimport. Persists across reimport as a breadcrumb.
+   */
+  lastKnownMaxOrder: number | null;
   importedAt: number;
   sortOrder: number;
 }
