@@ -24,6 +24,13 @@ export interface Series {
   chapterCount: number;
   lastReadChapterId: string | null;
   lastReadAt: number | null;
+  /**
+   * Stable resume pointer that survives `deleteReadChapters` and reimport.
+   * Persists the `order` of the last-read chapter so that after read-chapters
+   * are deleted and the series is re-imported, we can restore
+   * `lastReadChapterId` to the new chapter row with the same order.
+   */
+  lastReadChapterOrder: number | null;
   importedAt: number;
   sortOrder: number;
 }
@@ -72,11 +79,15 @@ export interface Bookmark {
   note: string | null;
 }
 
+export type ProgressBarPosition = 'top' | 'left' | 'right';
+
 export interface ReaderSettings {
   readingMode: 'webtoon';
   pageGap: number;
   autoNextChapter: boolean;
   brightness: number;
+  progressBarEnabled: boolean;
+  progressBarPosition: ProgressBarPosition;
 }
 
 export type LibrarySort = 'lastRead' | 'title' | 'custom';

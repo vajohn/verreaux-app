@@ -17,6 +17,10 @@ body:has(.reader-root)::after {
   height: 100vh;
   overflow-y: auto;
   overscroll-behavior: contain;
+  /* Leave room so the chapter-end card / Next button isn't trapped under
+     the bottom overlay when overlays are visible. */
+  padding-bottom: 96px;
+  box-sizing: border-box;
 }
 
 .virtual-list {
@@ -82,20 +86,46 @@ body:has(.reader-root)::after {
 
 .reader-persistent-bar {
   position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 3px;
   z-index: 480;
   background: var(--color-ash);
   border-radius: 0;
   pointer-events: none;
 }
 
+.reader-persistent-bar--top {
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+}
+
+.reader-persistent-bar--left {
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 3px;
+}
+
+.reader-persistent-bar--right {
+  top: 0;
+  bottom: 0;
+  right: 0;
+  width: 3px;
+}
+
 .reader-persistent-bar__fill {
-  height: 100%;
   background: linear-gradient(to right, var(--color-gold-dim), var(--color-gold));
-  transition: width 0.18s linear;
+  transition: width 0.18s linear, height 0.18s linear;
+}
+
+.reader-persistent-bar--top .reader-persistent-bar__fill {
+  height: 100%;
+}
+
+.reader-persistent-bar--left .reader-persistent-bar__fill,
+.reader-persistent-bar--right .reader-persistent-bar__fill {
+  width: 100%;
+  background: linear-gradient(to bottom, var(--color-gold-dim), var(--color-gold));
 }
 
 .reader-top-overlay,

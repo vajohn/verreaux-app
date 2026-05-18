@@ -2,7 +2,7 @@ import type { ZipReader } from '../../lib/zip';
 import { db } from '../../db/db';
 import { uuid } from '../../lib/uuid';
 import { walkLibrary, walkChapterUpdate, type SeriesEntry, type ChapterEntry } from './zipWalker';
-import { normalizeTitle } from '../../db/repos/series.repo';
+import { normalizeTitle, restoreLastReadFromOrder } from '../../db/repos/series.repo';
 import type { ImportType } from './typeDetector';
 import type { LogEntry } from '../../db/types';
 
@@ -244,6 +244,7 @@ async function importSeries(
         chapterCount: 0,
         lastReadChapterId: null,
         lastReadAt: null,
+        lastReadChapterOrder: null,
         importedAt: Date.now(),
         sortOrder: Date.now(),
       });
@@ -293,6 +294,10 @@ async function importSeries(
     const newCount = await db.chapters.where('seriesId').equals(seriesId).count();
     await db.series.update(seriesId, { chapterCount: newCount });
   });
+
+  // Restore the last-read chapter pointer if it was preserved by a prior
+  // delete-read-chapters operation. No-op when nothing was preserved.
+  await restoreLastReadFromOrder(activeProfileId, seriesId);
 }
 
 export async function runChapterMergePipeline(
@@ -351,4 +356,6 @@ export async function runChapterMergePipeline(
     const newCount = await db.chapters.where('seriesId').equals(targetSeriesId).count();
     await db.series.update(targetSeriesId, { chapterCount: newCount });
   });
+
+  await restoreLastReadFromOrder(activeProfileId, targetSeriesId);
 }

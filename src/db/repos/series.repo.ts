@@ -28,6 +28,7 @@ export async function createSeries(input: CreateSeriesInput): Promise<Series> {
     chapterCount: input.chapterCount ?? 0,
     lastReadChapterId: null,
     lastReadAt: null,
+    lastReadChapterOrder: null,
     importedAt: Date.now(),
     sortOrder: Date.now(),
   };
@@ -62,7 +63,15 @@ export async function setLastReadChapter(
   chapterId: string,
   at: number = Date.now(),
 ): Promise<void> {
-  await db.series.update(seriesId, { lastReadChapterId: chapterId, lastReadAt: at });
+  const chapter = await db.chapters.get(chapterId);
+  await db.series.update(seriesId, {
+    lastReadChapterId: chapterId,
+    lastReadAt: at,
+    // Persist the chapter `order` as a stable resume pointer that survives
+    // `deleteReadChapters` + reimport. Chapter ids change on reimport; order
+    // is the natural per-series key.
+    lastReadChapterOrder: chapter ? chapter.order : null,
+  });
 }
 
 export async function setCoverBlobOverride(
@@ -201,9 +210,59 @@ export async function deleteReadChapters(
         chapterCount: newCount,
         lastReadChapterId: null,
         lastReadAt: null,
+        // Preserve the order of the last-read chapter so that on reimport
+        // we can resume at the same chapter. The chapter row itself is being
+        // deleted, but its `order` is a stable per-series key.
+        lastReadChapterOrder: current.order,
       });
 
       return { chaptersDeleted: chapterIds.length, bytesFreed };
+    },
+  );
+}
+
+/**
+ * After an import / chapter-merge, if the series has a preserved
+ * `lastReadChapterOrder` (e.g. set by a previous `deleteReadChapters`) and no
+ * current `lastReadChapterId`, find the chapter at that order and restore the
+ * pointer plus a fresh `readingProgress` row at page 0. No-op if there is
+ * already a current chapter set, or no preserved order, or no matching chapter.
+ */
+export async function restoreLastReadFromOrder(
+  profileId: string,
+  seriesId: string,
+): Promise<void> {
+  await db.transaction(
+    'rw',
+    [db.series, db.chapters, db.readingProgress],
+    async () => {
+      const series = await db.series.get(seriesId);
+      if (!series) return;
+      if (series.lastReadChapterId) return;
+      const order = series.lastReadChapterOrder;
+      if (order == null) return;
+      const chapter = await db.chapters
+        .where('[seriesId+order]')
+        .equals([seriesId, order])
+        .first();
+      if (!chapter) return;
+      await db.series.update(seriesId, { lastReadChapterId: chapter.id });
+      const existing = await db.readingProgress
+        .where('[profileId+seriesId]')
+        .equals([profileId, seriesId])
+        .first();
+      if (!existing) {
+        await db.readingProgress.add({
+          id: uuid(),
+          profileId,
+          seriesId,
+          currentChapterId: chapter.id,
+          pageIndex: 0,
+          scrollPosition: 0,
+          updatedAt: Date.now(),
+          manuallyMarked: false,
+        });
+      }
     },
   );
 }

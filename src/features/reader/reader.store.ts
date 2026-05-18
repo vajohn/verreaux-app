@@ -15,6 +15,8 @@ const defaultSettings: ReaderSettings = {
   pageGap: 0,
   autoNextChapter: true,
   brightness: 0,
+  progressBarEnabled: true,
+  progressBarPosition: 'top',
 };
 
 function loadSettings(): ReaderSettings {

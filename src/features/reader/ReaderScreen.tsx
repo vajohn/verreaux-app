@@ -200,14 +200,23 @@ export function ReaderScreen({ seriesId, chapterId }: ReaderScreenProps) {
     navigate({ screen: 'reader', seriesId, chapterId: ch.id });
   }
 
+  const progressPct = Math.min(100, Math.max(0, scrollPct * 100));
+  const progressBarPos = settings.progressBarPosition;
+  const isVertical = progressBarPos === 'left' || progressBarPos === 'right';
+
   return (
     <div className="reader-root">
-      <div className="reader-persistent-bar" aria-hidden="true">
+      {settings.progressBarEnabled && (
         <div
-          className="reader-persistent-bar__fill"
-          style={{ width: `${Math.min(100, Math.max(0, scrollPct * 100))}%` }}
-        />
-      </div>
+          className={`reader-persistent-bar reader-persistent-bar--${progressBarPos}`}
+          aria-hidden="true"
+        >
+          <div
+            className="reader-persistent-bar__fill"
+            style={isVertical ? { height: `${progressPct}%` } : { width: `${progressPct}%` }}
+          />
+        </div>
+      )}
 
       <div
         className="reader-scroll"

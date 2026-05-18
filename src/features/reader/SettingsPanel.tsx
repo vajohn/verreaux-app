@@ -106,6 +106,34 @@ export function ReaderSettingsPanel({ onClose }: SettingsPanelProps) {
         </div>
       </div>
 
+      {/* Progress Bar */}
+      <div className="reader-settings-section">
+        <div className="reader-settings-row">
+          <span className="type-body">Progress Bar</span>
+          <button
+            className={`reader-settings-toggle type-button${settings.progressBarEnabled ? ' reader-settings-toggle--on' : ''}`}
+            onClick={() => updateSettings({ progressBarEnabled: !settings.progressBarEnabled })}
+            aria-pressed={settings.progressBarEnabled}
+          >
+            {settings.progressBarEnabled ? 'On' : 'Off'}
+          </button>
+        </div>
+        {settings.progressBarEnabled && (
+          <div className="reader-settings-mode-row" style={{ marginTop: 10 }}>
+            {(['top', 'left', 'right'] as const).map((pos) => (
+              <button
+                key={pos}
+                className={`reader-settings-mode-btn type-button${settings.progressBarPosition === pos ? ' reader-settings-mode-btn--active' : ''}`}
+                onClick={() => updateSettings({ progressBarPosition: pos })}
+                aria-pressed={settings.progressBarPosition === pos}
+              >
+                {pos.charAt(0).toUpperCase() + pos.slice(1)}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
       {/* Brightness */}
       <div className="reader-settings-section">
         <div className="reader-settings-row">
