@@ -109,6 +109,14 @@ export function ReaderScreen({ seriesId, chapterId }: ReaderScreenProps) {
   const virt = useVirtualization(pages);
 
   // Restore scroll position once pages mount.
+  //
+  // Absolute scrollTop is unreliable here: pages outside the render window
+  // use a placeholder height (ESTIMATED_HEIGHT) that rarely matches the real
+  // image height, so a raw scrollTop assignment drifts as placeholders swap
+  // to real images. Anchor on `pageIndex` instead — seed the virtualization
+  // window around the saved page, then scroll the matching slot's element
+  // into the offsetTop position. The saved `scrollPosition` is applied as a
+  // best-effort intra-page nudge once we've anchored to the right page.
   useEffect(() => {
     if (pages.length === 0 || !scrollRef.current) return;
     let cancelled = false;
@@ -118,20 +126,37 @@ export function ReaderScreen({ seriesId, chapterId }: ReaderScreenProps) {
         .equals([profileId, seriesId])
         .first();
       if (cancelled || !scrollRef.current) return;
-      requestAnimationFrame(() => {
+      if (!rec || rec.currentChapterId !== chapterId || rec.pageIndex <= 0) {
+        scrollRef.current.scrollTop = 0;
+        return;
+      }
+      const targetIndex = Math.min(rec.pageIndex, pages.length - 1);
+      // Seed React + virtualization with the target index so the slot is
+      // marked in-window and its image is prefetched on this render pass.
+      setCurrentIndex(targetIndex);
+      virt.onCurrentIndexChange(targetIndex);
+
+      // Wait for the slot to actually exist in the DOM, then anchor. The
+      // loop covers the first ~250ms of layout settling (image swap from
+      // placeholder shimmer to the decoded image).
+      const tryAnchor = (attempts: number): void => {
         if (cancelled || !scrollRef.current) return;
-        if (rec && rec.currentChapterId === chapterId && rec.scrollPosition > 0) {
-          scrollRef.current.scrollTop = rec.scrollPosition;
-        } else {
-          scrollRef.current.scrollTop = 0;
+        const el = scrollRef.current.querySelector<HTMLElement>(
+          `[data-index="${targetIndex}"]`,
+        );
+        if (el) {
+          scrollRef.current.scrollTop = el.offsetTop;
+          return;
         }
-      });
+        if (attempts > 0) requestAnimationFrame(() => tryAnchor(attempts - 1));
+      };
+      requestAnimationFrame(() => tryAnchor(15));
     }
     void restore();
     return () => {
       cancelled = true;
     };
-  }, [pages.length, profileId, seriesId, chapterId]);
+  }, [pages.length, profileId, seriesId, chapterId, virt.onCurrentIndexChange]);
 
   const { onScroll } = useProgressPersist(profileId, seriesId, () => {
     const p = pages[currentIndex];
