@@ -242,6 +242,8 @@ export function ReaderScreen({ seriesId, chapterId }: ReaderScreenProps) {
                 const next = chapters[chapterIndexInSeries + 1];
                 if (next) navigate({ screen: 'reader', seriesId, chapterId: next.id });
               }}
+              onSeries={() => navigate({ screen: 'series', seriesId })}
+              onHome={() => navigate({ screen: 'home' })}
             />
           </>
         )}
