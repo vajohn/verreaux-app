@@ -1,5 +1,5 @@
 import { db } from '../db';
-import type { ReadingProgress } from '../types';
+import type { ReadingProgress, Series } from '../types';
 import { uuid } from '../../lib/uuid';
 
 export async function getProgress(
@@ -52,16 +52,36 @@ export async function clearSeriesProgress(
   profileId: string,
   seriesId: string,
 ): Promise<void> {
-  await db.transaction('rw', [db.readingProgress, db.series], async () => {
-    await db.readingProgress
-      .where('[profileId+seriesId]')
-      .equals([profileId, seriesId])
-      .delete();
-    await db.series.update(seriesId, {
-      lastReadChapterId: null,
-      lastReadAt: null,
-    });
-  });
+  await db.transaction(
+    'rw',
+    [db.readingProgress, db.series, db.chapters],
+    async () => {
+      // Preserve the order of the last-read chapter so that on reimport
+      // restoreLastReadFromOrder can resume at the same spot. Chapter IDs
+      // change on reimport; `order` is the stable per-series key.
+      const progress = await db.readingProgress
+        .where('[profileId+seriesId]')
+        .equals([profileId, seriesId])
+        .first();
+      let preservedOrder: number | null = null;
+      if (progress) {
+        const cur = await db.chapters.get(progress.currentChapterId);
+        if (cur) preservedOrder = cur.order;
+      }
+
+      await db.readingProgress
+        .where('[profileId+seriesId]')
+        .equals([profileId, seriesId])
+        .delete();
+
+      const patch: Partial<Series> = {
+        lastReadChapterId: null,
+        lastReadAt: null,
+      };
+      if (preservedOrder !== null) patch.lastReadChapterOrder = preservedOrder;
+      await db.series.update(seriesId, patch);
+    },
+  );
 }
 
 export async function setManuallyMarked(
