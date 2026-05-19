@@ -130,7 +130,16 @@ export function ReaderScreen({ seriesId, chapterId }: ReaderScreenProps) {
         scrollRef.current.scrollTop = 0;
         return;
       }
-      const targetIndex = Math.min(rec.pageIndex, pages.length - 1);
+      // `rec.pageIndex` is a within-chapter offset (page N of the saved
+      // chapter), not a flat-list index. Find the first slot whose chapterId
+      // matches the saved chapter, then add the offset. This survives
+      // infinite-scroll sessions that started from different chapters.
+      const chapterStart = pages.findIndex((p) => p.chapterId === rec.currentChapterId);
+      if (chapterStart < 0) {
+        scrollRef.current.scrollTop = 0;
+        return;
+      }
+      const targetIndex = Math.min(chapterStart + rec.pageIndex, pages.length - 1);
       // Seed React + virtualization with the target index so the slot is
       // marked in-window and its image is prefetched on this render pass.
       setCurrentIndex(targetIndex);
@@ -160,9 +169,17 @@ export function ReaderScreen({ seriesId, chapterId }: ReaderScreenProps) {
 
   const { onScroll } = useProgressPersist(profileId, seriesId, () => {
     const p = pages[currentIndex];
+    const activeChapterId = p?.chapterId ?? chapterId;
+    // Persist pageIndex as an offset within the current chapter, not as the
+    // flat-list index. The flat list depends on which chapter the session
+    // started at (with infinite scroll on), so a flat index is not portable
+    // across sessions. Within-chapter offset restores correctly regardless
+    // of where the next session begins building the flat list.
+    const chapterStart = pages.findIndex((pg) => pg.chapterId === activeChapterId);
+    const pageInChapter = chapterStart >= 0 ? currentIndex - chapterStart : 0;
     return {
-      chapterId: p?.chapterId ?? chapterId,
-      pageIndex: currentIndex,
+      chapterId: activeChapterId,
+      pageIndex: Math.max(0, pageInChapter),
       scrollPosition: scrollRef.current?.scrollTop ?? 0,
     };
   });
