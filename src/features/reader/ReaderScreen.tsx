@@ -169,16 +169,22 @@ export function ReaderScreen({ seriesId, chapterId }: ReaderScreenProps) {
 
   const { onScroll } = useProgressPersist(profileId, seriesId, () => {
     const p = pages[currentIndex];
-    const activeChapterId = p?.chapterId ?? chapterId;
+    // No ground truth yet: pages haven't loaded, or currentIndex is stale.
+    // Returning null chapterId tells useProgressPersist to skip the write,
+    // so a flush during the load window can't overwrite a previously saved
+    // pageIndex with 0.
+    if (!p) {
+      return { chapterId: null, pageIndex: 0, scrollPosition: 0 };
+    }
     // Persist pageIndex as an offset within the current chapter, not as the
     // flat-list index. The flat list depends on which chapter the session
     // started at (with infinite scroll on), so a flat index is not portable
     // across sessions. Within-chapter offset restores correctly regardless
     // of where the next session begins building the flat list.
-    const chapterStart = pages.findIndex((pg) => pg.chapterId === activeChapterId);
+    const chapterStart = pages.findIndex((pg) => pg.chapterId === p.chapterId);
     const pageInChapter = chapterStart >= 0 ? currentIndex - chapterStart : 0;
     return {
-      chapterId: activeChapterId,
+      chapterId: p.chapterId,
       pageIndex: Math.max(0, pageInChapter),
       scrollPosition: scrollRef.current?.scrollTop ?? 0,
     };
