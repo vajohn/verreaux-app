@@ -168,25 +168,43 @@ export function ReaderScreen({ seriesId, chapterId }: ReaderScreenProps) {
   }, [pages.length, profileId, seriesId, chapterId, virt.onCurrentIndexChange]);
 
   const { onScroll } = useProgressPersist(profileId, seriesId, () => {
-    const p = pages[currentIndex];
-    // No ground truth yet: pages haven't loaded, or currentIndex is stale.
-    // Returning null chapterId tells useProgressPersist to skip the write,
-    // so a flush during the load window can't overwrite a previously saved
-    // pageIndex with 0.
+    const root = scrollRef.current;
+    if (!root || pages.length === 0) {
+      return { chapterId: null, pageIndex: 0, scrollPosition: 0 };
+    }
+    // Derive the visible page from the DOM at flush time, not from
+    // `currentIndex`. IntersectionObserver callbacks are async, so React's
+    // `currentIndex` lags real scroll position. A fast close right after
+    // scrolling would otherwise persist with a stale index (often 0) and
+    // overwrite the saved within-chapter offset.
+    const scrollTop = root.scrollTop;
+    const centerY = scrollTop + root.clientHeight / 2;
+    const slots = root.querySelectorAll<HTMLElement>('.page-slot');
+    let domIndex = -1;
+    for (const slot of slots) {
+      const top = slot.offsetTop;
+      const bottom = top + slot.offsetHeight;
+      if (top <= centerY && centerY < bottom) {
+        const parsed = Number(slot.dataset['index']);
+        if (Number.isFinite(parsed)) domIndex = parsed;
+        break;
+      }
+    }
+    const resolvedIndex = domIndex >= 0 ? domIndex : currentIndex;
+    const p = pages[resolvedIndex];
     if (!p) {
       return { chapterId: null, pageIndex: 0, scrollPosition: 0 };
     }
     // Persist pageIndex as an offset within the current chapter, not as the
     // flat-list index. The flat list depends on which chapter the session
     // started at (with infinite scroll on), so a flat index is not portable
-    // across sessions. Within-chapter offset restores correctly regardless
-    // of where the next session begins building the flat list.
+    // across sessions.
     const chapterStart = pages.findIndex((pg) => pg.chapterId === p.chapterId);
-    const pageInChapter = chapterStart >= 0 ? currentIndex - chapterStart : 0;
+    const pageInChapter = chapterStart >= 0 ? resolvedIndex - chapterStart : 0;
     return {
       chapterId: p.chapterId,
       pageIndex: Math.max(0, pageInChapter),
-      scrollPosition: scrollRef.current?.scrollTop ?? 0,
+      scrollPosition: scrollTop,
     };
   });
 
