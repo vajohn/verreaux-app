@@ -19,20 +19,7 @@ export function SeriesCard({ series, profileId, showTimestamp = false }: SeriesC
     series.chapterCount,
     series.lastReadAt,
   );
-  // Mirror SeriesScreen: when chapters have been wiped but we have a
-  // snapshot pair, surface it so the card shows e.g. "202 / 204" instead
-  // of "0 / 0" until reimport restores live counts.
-  const showPreserved =
-    progress.totalChapters === 0 &&
-    series.lastReadChapterOrder !== null &&
-    series.lastKnownMaxOrder !== null;
-  const displayRead = showPreserved
-    ? (series.lastReadChapterOrder as number)
-    : progress.readChapters;
-  const displayTotal = showPreserved
-    ? (series.lastKnownMaxOrder as number)
-    : progress.totalChapters;
-  const pct = displayTotal > 0 ? displayRead / displayTotal : 0;
+  const pct = progress.totalChapters > 0 ? progress.readChapters / progress.totalChapters : 0;
   return (
     <button
       className="series-card anim-fade-up"
@@ -44,7 +31,7 @@ export function SeriesCard({ series, profileId, showTimestamp = false }: SeriesC
       </div>
       <div className="series-card__title type-card-title">{series.title}</div>
       <div className="type-progress-count series-card__count">
-        {displayRead} / {displayTotal}
+        {progress.readChapters} / {progress.totalChapters}
       </div>
       <ProgressBar value={pct} />
       {showTimestamp && series.lastReadAt && (

@@ -290,10 +290,22 @@ async function importSeries(
     });
   }
 
-  // Final small txn: refresh chapterCount.
+  // Final small txn: refresh chapterCount and bump lastKnownMaxOrder snapshot
+  // so a later wipe can fall back to the most recent live max.
   await db.transaction('rw', [db.series, db.chapters], async () => {
     const newCount = await db.chapters.where('seriesId').equals(seriesId).count();
-    await db.series.update(seriesId, { chapterCount: newCount });
+    const lastChapter = await db.chapters
+      .where('[seriesId+order]')
+      .between([seriesId, -Infinity], [seriesId, Infinity])
+      .last();
+    const current = await db.series.get(seriesId);
+    const prevMax = current?.lastKnownMaxOrder ?? 0;
+    const liveMax = lastChapter?.order ?? 0;
+    const nextMax = Math.max(prevMax, liveMax);
+    await db.series.update(seriesId, {
+      chapterCount: newCount,
+      lastKnownMaxOrder: nextMax > 0 ? nextMax : null,
+    });
   });
 
   // Restore the last-read chapter pointer if it was preserved by a prior
@@ -355,7 +367,18 @@ export async function runChapterMergePipeline(
 
   await db.transaction('rw', [db.series, db.chapters], async () => {
     const newCount = await db.chapters.where('seriesId').equals(targetSeriesId).count();
-    await db.series.update(targetSeriesId, { chapterCount: newCount });
+    const lastChapter = await db.chapters
+      .where('[seriesId+order]')
+      .between([targetSeriesId, -Infinity], [targetSeriesId, Infinity])
+      .last();
+    const current = await db.series.get(targetSeriesId);
+    const prevMax = current?.lastKnownMaxOrder ?? 0;
+    const liveMax = lastChapter?.order ?? 0;
+    const nextMax = Math.max(prevMax, liveMax);
+    await db.series.update(targetSeriesId, {
+      chapterCount: newCount,
+      lastKnownMaxOrder: nextMax > 0 ? nextMax : null,
+    });
   });
 
   await restoreLastReadFromOrder(activeProfileId, targetSeriesId);

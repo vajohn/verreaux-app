@@ -143,22 +143,12 @@ export function SeriesScreen({ seriesId }: SeriesScreenProps) {
   const continueChapter = currentChapterId
     ? chapters.find((c) => c.id === currentChapterId) ?? firstChapter
     : firstChapter;
-  // When all chapters have been wiped (e.g. via "Delete read chapters") but
-  // we still have the breadcrumb pair (lastReadChapterOrder + lastKnownMaxOrder),
-  // surface that snapshot so the header keeps showing e.g. "202 / 204"
-  // instead of "0 / 0" until reimport restores the live counts.
-  const showPreservedSnapshot =
-    seriesProgress.totalChapters === 0 &&
-    currentSeries.lastReadChapterOrder !== null &&
-    currentSeries.lastKnownMaxOrder !== null;
-  const displayRead = showPreservedSnapshot
-    ? (currentSeries.lastReadChapterOrder as number)
-    : seriesProgress.readChapters;
-  const displayTotal = showPreservedSnapshot
-    ? (currentSeries.lastKnownMaxOrder as number)
-    : seriesProgress.totalChapters;
-  const pct =
-    displayTotal > 0 ? displayRead / displayTotal : 0;
+  // useSeriesProgress now returns chapter-order semantics with built-in
+  // fallback to lastKnownMaxOrder when chapters have been wiped, so no
+  // extra preserved-snapshot bridge is needed here.
+  const displayRead = seriesProgress.readChapters;
+  const displayTotal = seriesProgress.totalChapters;
+  const pct = displayTotal > 0 ? displayRead / displayTotal : 0;
 
   // Mark chapter read/unread
   async function handleMarkRead(chapter: Chapter, markRead: boolean): Promise<void> {

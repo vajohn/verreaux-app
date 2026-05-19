@@ -46,20 +46,24 @@ export function ContinueCard({ profileId, revision = 0 }: ContinueCardProps) {
         return;
       }
       const chapter = (await db.chapters.get(latest.currentChapterId)) ?? null;
-      let readChapters = 0;
-      if (chapter) {
-        readChapters = await db.chapters
-          .where('[seriesId+order]')
-          .between([chapter.seriesId, -Infinity], [chapter.seriesId, chapter.order], true, true)
-          .count();
-      }
+      // Order-space progress: numerator = last-read chapter order,
+      // denominator = highest chapter.order (or preserved snapshot if wiped).
+      // Matches useSeriesProgress so cards across the app agree.
+      const lastChapter = await db.chapters
+        .where('[seriesId+order]')
+        .between([series.id, -Infinity], [series.id, Infinity])
+        .last();
+      const liveMax = lastChapter?.order ?? 0;
+      const totalChapters =
+        liveMax > 0 ? liveMax : series.lastKnownMaxOrder ?? 0;
+      const readChapters = series.lastReadChapterOrder ?? 0;
       if (!cancelled) {
         setData({
           series,
           progress: latest,
           chapter,
           readChapters,
-          totalChapters: series.chapterCount,
+          totalChapters,
         });
       }
     }
