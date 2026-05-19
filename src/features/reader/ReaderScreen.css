@@ -207,11 +207,68 @@ body:has(.reader-root)::after {
   min-height: 36px;
   border-radius: 0;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: color 0.12s ease, border-color 0.12s ease, background-color 0.12s ease;
 }
 
 .reader-icon-btn:hover {
   color: var(--color-gold);
   border-color: var(--color-gold-dim);
+}
+
+.reader-icon-btn:active {
+  color: var(--color-gold);
+  border-color: var(--color-gold);
+  background-color: rgba(212, 175, 55, 0.08);
+}
+
+.reader-icon-btn:disabled,
+.reader-icon-btn[aria-disabled='true'] {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.reader-icon-btn:disabled:hover,
+.reader-icon-btn[aria-disabled='true']:hover {
+  color: var(--color-ivory-dim);
+  border-color: var(--color-ash);
+  background-color: transparent;
+}
+
+/* Icon variants: the stroke version is the default; CSS swaps to the filled
+   version while the button is hovered, pressed, or carries `.is-filled`
+   (used by Cfg when the settings panel is open and Bookmark when the
+   current page is already bookmarked). */
+.reader-icon-btn .icon__filled {
+  display: none;
+}
+.reader-icon-btn:hover .icon__filled,
+.reader-icon-btn:active .icon__filled,
+.reader-icon-btn.is-filled .icon__filled {
+  display: block;
+}
+.reader-icon-btn:hover .icon__stroke,
+.reader-icon-btn:active .icon__stroke,
+.reader-icon-btn.is-filled .icon__stroke {
+  display: none;
+}
+
+.reader-icon-btn.is-filled {
+  color: var(--color-gold);
+  border-color: var(--color-gold-dim);
+}
+
+/* Disabled buttons never show the filled state — they're not "in use". */
+.reader-icon-btn:disabled .icon__filled,
+.reader-icon-btn[aria-disabled='true'] .icon__filled {
+  display: none;
+}
+.reader-icon-btn:disabled .icon__stroke,
+.reader-icon-btn[aria-disabled='true'] .icon__stroke {
+  display: block;
 }
 
 .reader-page-count {

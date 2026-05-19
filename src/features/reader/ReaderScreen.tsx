@@ -13,6 +13,7 @@ import { ChapterEndCard } from './ChapterEndCard';
 import { ChapterDrawer } from './ChapterDrawer';
 import { ReaderSettingsPanel } from './SettingsPanel';
 import { Toast } from '../../ui/Toast';
+import { Icon } from './Icon';
 import { navigate } from '../../app/router';
 import type { Chapter, Bookmark } from '../../db/types';
 import './ReaderScreen.css';
@@ -321,6 +322,17 @@ export function ReaderScreen({ seriesId, chapterId }: ReaderScreenProps) {
     ? chapters.findIndex((c) => c.id === currentChapter.id)
     : -1;
 
+  // The current page is "bookmarked" when there's a bookmark whose chapterId
+  // and pageIndex match what the reader would save right now. Matches the
+  // existing addBookmark contract (pageIndex stored as the flat-list index).
+  const currentPageBookmarked = useMemo(() => {
+    const p = pages[currentIndex];
+    if (!p) return false;
+    return bookmarks.some(
+      (b) => b.chapterId === p.chapterId && b.pageIndex === currentIndex,
+    );
+  }, [bookmarks, pages, currentIndex]);
+
   // Long-press bookmark handler.
   const handlePageLongPress = useCallback(
     async (pageIndex: number) => {
@@ -411,8 +423,10 @@ export function ReaderScreen({ seriesId, chapterId }: ReaderScreenProps) {
         <button
           className="reader-icon-btn type-button"
           onClick={() => navigate({ screen: 'series', seriesId })}
+          aria-label="Back to series"
+          title="Back to series"
         >
-          Back
+          <Icon name="back" />
         </button>
         <button
           className="reader-top-overlay__chapter-chip type-meta-italic"
@@ -426,18 +440,25 @@ export function ReaderScreen({ seriesId, chapterId }: ReaderScreenProps) {
           {currentChapter && ` — ${currentChapter.title}`}
         </button>
         <button
-          className="reader-icon-btn reader-bookmark-btn type-button"
-          aria-label="Bookmark current page"
+          className={`reader-icon-btn reader-bookmark-btn type-button${
+            currentPageBookmarked ? ' is-filled' : ''
+          }`}
+          aria-label={
+            currentPageBookmarked ? 'Page bookmarked' : 'Bookmark current page'
+          }
+          aria-pressed={currentPageBookmarked}
           onClick={() => { void handlePageLongPress(currentIndex); }}
           title="Bookmark current page"
         >
-          [B]
+          <Icon name="bookmark" />
         </button>
         <button
           className="reader-icon-btn type-button"
           onClick={() => navigate({ screen: 'home' })}
+          aria-label="Home"
+          title="Home"
         >
-          Home
+          <Icon name="home" />
         </button>
       </div>
 
@@ -452,8 +473,10 @@ export function ReaderScreen({ seriesId, chapterId }: ReaderScreenProps) {
           }}
           disabled={chapterIndexInSeries <= 0}
           aria-disabled={chapterIndexInSeries <= 0}
+          aria-label="Previous chapter"
+          title="Previous chapter"
         >
-          Prev
+          <Icon name="prev" />
         </button>
         <div className="reader-page-count type-nav-label">
           {currentIndex + 1} / {pages.length}
@@ -469,14 +492,16 @@ export function ReaderScreen({ seriesId, chapterId }: ReaderScreenProps) {
           Chs
         </button>
         <button
-          className="reader-icon-btn type-button"
+          className={`reader-icon-btn type-button${settingsOpen ? ' is-filled' : ''}`}
           onClick={() => {
             hideOverlays();
             setSettingsOpen(true);
           }}
           aria-label="Open reader settings"
+          aria-pressed={settingsOpen}
+          title="Settings"
         >
-          Cfg
+          <Icon name="cfg" />
         </button>
         <button
           className="reader-icon-btn type-button"
@@ -486,8 +511,10 @@ export function ReaderScreen({ seriesId, chapterId }: ReaderScreenProps) {
           }}
           disabled={chapterIndexInSeries < 0 || chapterIndexInSeries >= chapters.length - 1}
           aria-disabled={chapterIndexInSeries < 0 || chapterIndexInSeries >= chapters.length - 1}
+          aria-label="Next chapter"
+          title="Next chapter"
         >
-          Next
+          <Icon name="next" />
         </button>
       </div>
 

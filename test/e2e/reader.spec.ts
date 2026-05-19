@@ -112,7 +112,7 @@ test('next chapter button loads the next chapter\'s pages', async ({ page }) => 
   await page.locator('.reader-scroll').click();
   const nextBtn = page
     .locator('.reader-bottom-overlay')
-    .getByRole('button', { name: /^Next$/ });
+    .getByRole('button', { name: /Next chapter/i });
   await expect(nextBtn).toBeVisible({ timeout: 3_000 });
   const nextEnabled = await nextBtn.isEnabled();
   test.skip(!nextEnabled, 'Fixture has no next chapter to navigate to');
