@@ -103,6 +103,20 @@ export class VerreauxDB extends Dexie {
     this.version(3).stores({
       logs: 'id, ts, level, source, runId',
     });
+
+    // v4 — `readingProgress.scrollPosition` changed semantics from absolute
+    // scrollTop to intra-page Y offset. Old absolute values (often in the
+    // thousands) would apply as oversized offsets within a single page, so
+    // reset them to 0. Users resume at the top of their saved page, which is
+    // the prior behavior anyway — only the (broken) intra-page nudge is lost.
+    this.version(4).upgrade(async (tx) => {
+      await tx
+        .table('readingProgress')
+        .toCollection()
+        .modify((r: Record<string, unknown>) => {
+          r['scrollPosition'] = 0;
+        });
+    });
   }
 }
 

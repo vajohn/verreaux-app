@@ -110,16 +110,38 @@ export function ReaderScreen({ seriesId, chapterId }: ReaderScreenProps) {
 
   // Restore scroll position once pages mount.
   //
-  // Absolute scrollTop is unreliable here: pages outside the render window
-  // use a placeholder height (ESTIMATED_HEIGHT) that rarely matches the real
-  // image height, so a raw scrollTop assignment drifts as placeholders swap
-  // to real images. Anchor on `pageIndex` instead — seed the virtualization
-  // window around the saved page, then scroll the matching slot's element
-  // into the offsetTop position. The saved `scrollPosition` is applied as a
-  // best-effort intra-page nudge once we've anchored to the right page.
+  // `pageIndex` is a within-chapter offset (page N of the saved chapter).
+  // `scrollPosition` is an intra-page Y offset (pixels from the top of that
+  // page's slot), not an absolute scrollTop. Restore is a three-step dance:
+  //   1) Seed the virtualization window around the target page so its image
+  //      is fetched on this render pass.
+  //   2) Anchor scrollTop to the slot's offsetTop once it exists in the DOM.
+  //   3) After the image loads and the slot settles to its real height,
+  //      re-anchor with the intra-page offset applied, clamping to the slot.
+  // Step 3 must wait for image decode because the slot's offsetTop drifts as
+  // placeholder shimmers above swap to real images.
   useEffect(() => {
     if (pages.length === 0 || !scrollRef.current) return;
     let cancelled = false;
+    let activeResizeObserver: ResizeObserver | null = null;
+    let activeImg: HTMLImageElement | null = null;
+    let imgLoadHandler: (() => void) | null = null;
+    let settleTimer: number | null = null;
+
+    function cleanup(): void {
+      activeResizeObserver?.disconnect();
+      activeResizeObserver = null;
+      if (activeImg && imgLoadHandler) {
+        activeImg.removeEventListener('load', imgLoadHandler);
+        activeImg = null;
+        imgLoadHandler = null;
+      }
+      if (settleTimer !== null) {
+        window.clearTimeout(settleTimer);
+        settleTimer = null;
+      }
+    }
+
     async function restore(): Promise<void> {
       const rec = await db.readingProgress
         .where('[profileId+seriesId]')
@@ -130,42 +152,91 @@ export function ReaderScreen({ seriesId, chapterId }: ReaderScreenProps) {
         scrollRef.current.scrollTop = 0;
         return;
       }
-      // `rec.pageIndex` is a within-chapter offset (page N of the saved
-      // chapter), not a flat-list index. Find the first slot whose chapterId
-      // matches the saved chapter, then add the offset. This survives
-      // infinite-scroll sessions that started from different chapters.
       const chapterStart = pages.findIndex((p) => p.chapterId === rec.currentChapterId);
       if (chapterStart < 0) {
         scrollRef.current.scrollTop = 0;
         return;
       }
       const targetIndex = Math.min(chapterStart + rec.pageIndex, pages.length - 1);
-      // Seed React + virtualization with the target index so the slot is
-      // marked in-window and its image is prefetched on this render pass.
+      const intraPageY = Math.max(0, rec.scrollPosition);
+
       setCurrentIndex(targetIndex);
       virt.onCurrentIndexChange(targetIndex);
 
-      // Wait for the slot to actually exist in the DOM, then anchor. The
-      // loop covers the first ~250ms of layout settling (image swap from
-      // placeholder shimmer to the decoded image).
+      const applyAnchor = (el: HTMLElement, includeOffset: boolean): void => {
+        const root = scrollRef.current;
+        if (!root) return;
+        const maxIntra = Math.max(0, el.offsetHeight - root.clientHeight);
+        const offset = includeOffset ? Math.min(intraPageY, maxIntra) : 0;
+        root.scrollTop = el.offsetTop + offset;
+      };
+
+      const armSettleObserver = (el: HTMLElement): void => {
+        // Re-anchor while neighboring placeholders swap to real images and
+        // shift this slot's offsetTop. End the watch after a 400ms quiet
+        // period — enough for adjacent pages in the prefetch window to load
+        // without holding scroll hostage forever on slow connections.
+        const ro = new ResizeObserver(() => {
+          if (cancelled) return;
+          applyAnchor(el, true);
+          if (settleTimer !== null) window.clearTimeout(settleTimer);
+          settleTimer = window.setTimeout(() => {
+            ro.disconnect();
+            activeResizeObserver = null;
+          }, 400);
+        });
+        // Observe the scroll root so any layout shift inside the document
+        // (any slot resizing) re-triggers the anchor.
+        if (scrollRef.current) ro.observe(scrollRef.current);
+        ro.observe(el);
+        activeResizeObserver = ro;
+        settleTimer = window.setTimeout(() => {
+          ro.disconnect();
+          activeResizeObserver = null;
+        }, 400);
+      };
+
       const tryAnchor = (attempts: number): void => {
         if (cancelled || !scrollRef.current) return;
         const el = scrollRef.current.querySelector<HTMLElement>(
-          `[data-index="${targetIndex}"]`,
+          `.page-slot[data-index="${targetIndex}"]`,
         );
-        if (el) {
-          scrollRef.current.scrollTop = el.offsetTop;
+        if (!el) {
+          if (attempts > 0) requestAnimationFrame(() => tryAnchor(attempts - 1));
           return;
         }
-        if (attempts > 0) requestAnimationFrame(() => tryAnchor(attempts - 1));
+        // Step 2: land at top of slot immediately so the user sees the right
+        // page even before the image decodes.
+        applyAnchor(el, false);
+
+        // Step 3: once the image loads, apply intra-page offset and watch for
+        // settling. If the slot is still a shimmer placeholder, retry.
+        const img = el.querySelector<HTMLImageElement>('img.page-slot__img');
+        if (!img) {
+          if (attempts > 0) requestAnimationFrame(() => tryAnchor(attempts - 1));
+          return;
+        }
+        const onReady = (): void => {
+          if (cancelled) return;
+          applyAnchor(el, true);
+          armSettleObserver(el);
+        };
+        if (img.complete && img.naturalHeight > 0) {
+          onReady();
+        } else {
+          activeImg = img;
+          imgLoadHandler = onReady;
+          img.addEventListener('load', onReady, { once: true });
+        }
       };
-      requestAnimationFrame(() => tryAnchor(15));
+      requestAnimationFrame(() => tryAnchor(30));
     }
     void restore();
     return () => {
       cancelled = true;
+      cleanup();
     };
-  }, [pages.length, profileId, seriesId, chapterId, virt.onCurrentIndexChange]);
+  }, [pages, profileId, seriesId, chapterId, virt.onCurrentIndexChange]);
 
   const { onScroll } = useProgressPersist(profileId, seriesId, () => {
     const root = scrollRef.current;
@@ -180,13 +251,17 @@ export function ReaderScreen({ seriesId, chapterId }: ReaderScreenProps) {
     const scrollTop = root.scrollTop;
     const centerY = scrollTop + root.clientHeight / 2;
     const slots = root.querySelectorAll<HTMLElement>('.page-slot');
+    let activeSlot: HTMLElement | null = null;
     let domIndex = -1;
     for (const slot of slots) {
       const top = slot.offsetTop;
       const bottom = top + slot.offsetHeight;
       if (top <= centerY && centerY < bottom) {
         const parsed = Number(slot.dataset['index']);
-        if (Number.isFinite(parsed)) domIndex = parsed;
+        if (Number.isFinite(parsed)) {
+          domIndex = parsed;
+          activeSlot = slot;
+        }
         break;
       }
     }
@@ -201,10 +276,16 @@ export function ReaderScreen({ seriesId, chapterId }: ReaderScreenProps) {
     // across sessions.
     const chapterStart = pages.findIndex((pg) => pg.chapterId === p.chapterId);
     const pageInChapter = chapterStart >= 0 ? resolvedIndex - chapterStart : 0;
+    // Intra-page offset: pixels into the current page slot. Stable across
+    // sessions because the slot's intrinsic dimensions are tied to the image,
+    // unlike absolute scrollTop which drifts with placeholder heights.
+    const intraPageY = activeSlot
+      ? Math.max(0, scrollTop - activeSlot.offsetTop)
+      : 0;
     return {
       chapterId: p.chapterId,
       pageIndex: Math.max(0, pageInChapter),
-      scrollPosition: scrollTop,
+      scrollPosition: intraPageY,
     };
   });
 

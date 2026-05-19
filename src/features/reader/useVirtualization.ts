@@ -18,8 +18,14 @@ export interface Virtualization {
 }
 
 export function useVirtualization(pages: PageMeta[]): Virtualization {
-  const objectUrls = useRef<Map<number, string>>(new Map());
-  const cachedHeights = useRef<Map<number, number>>(new Map());
+  // Cache keys are page IDs (stable across chapter switches), not flat indices.
+  // Index-keyed caches got poisoned on chapter switch: index 5 in chapter A and
+  // index 5 in chapter B point to different blobs, but the Map hit returned the
+  // stale URL from A. Page IDs are unique per page record and survive remounts.
+  const objectUrls = useRef<Map<string, string>>(new Map());
+  const cachedHeights = useRef<Map<string, number>>(new Map());
+  const pagesRef = useRef<PageMeta[]>(pages);
+  pagesRef.current = pages;
   const [renderRevision, setRenderRevision] = useState(0);
   const currentIndexRef = useRef(0);
 
@@ -27,52 +33,59 @@ export function useVirtualization(pages: PageMeta[]): Virtualization {
 
   const loadPage = useCallback(
     async (index: number) => {
-      if (objectUrls.current.has(index)) return;
-      const page = pages[index];
+      const page = pagesRef.current[index];
       if (!page) return;
+      if (objectUrls.current.has(page.id)) return;
       try {
         const blobRecord = await db.blobs.get(page.blobId);
         if (!blobRecord) return;
-        if (objectUrls.current.has(index)) return; // raced
+        if (objectUrls.current.has(page.id)) return; // raced
         const url = URL.createObjectURL(blobRecord.blob);
-        objectUrls.current.set(index, url);
+        objectUrls.current.set(page.id, url);
         forceRender();
       } catch {
         // ignore — placeholder remains
       }
     },
-    [pages, forceRender],
+    [forceRender],
   );
 
   const evictOutside = useCallback(
     (currentIndex: number) => {
+      const list = pagesRef.current;
       const keepStart = Math.max(0, currentIndex - WINDOW_SIZE - PREFETCH_BEHIND);
       const keepEnd = Math.min(
-        pages.length - 1,
+        list.length - 1,
         currentIndex + WINDOW_SIZE + PREFETCH_AHEAD,
       );
+      const keepIds = new Set<string>();
+      for (let i = keepStart; i <= keepEnd; i++) {
+        const p = list[i];
+        if (p) keepIds.add(p.id);
+      }
       let changed = false;
-      for (const [index, url] of objectUrls.current.entries()) {
-        if (index < keepStart || index > keepEnd) {
+      for (const [id, url] of objectUrls.current.entries()) {
+        if (!keepIds.has(id)) {
           URL.revokeObjectURL(url);
-          objectUrls.current.delete(index);
+          objectUrls.current.delete(id);
           changed = true;
         }
       }
       if (changed) forceRender();
     },
-    [pages.length, forceRender],
+    [forceRender],
   );
 
   const prefetchWindow = useCallback(
     (currentIndex: number) => {
+      const list = pagesRef.current;
       const start = Math.max(0, currentIndex - PREFETCH_BEHIND);
-      const end = Math.min(pages.length - 1, currentIndex + PREFETCH_AHEAD);
+      const end = Math.min(list.length - 1, currentIndex + PREFETCH_AHEAD);
       for (let i = start; i <= end; i++) {
         void loadPage(i);
       }
     },
-    [loadPage, pages.length],
+    [loadPage],
   );
 
   const onCurrentIndexChange = useCallback(
@@ -85,9 +98,10 @@ export function useVirtualization(pages: PageMeta[]): Virtualization {
   );
 
   const onHeightMeasured = useCallback((index: number, height: number) => {
-    if (height > 0) {
-      cachedHeights.current.set(index, height);
-    }
+    if (height <= 0) return;
+    const p = pagesRef.current[index];
+    if (!p) return;
+    cachedHeights.current.set(p.id, height);
   }, []);
 
   const isInRenderWindow = useCallback((index: number): boolean => {
@@ -97,16 +111,51 @@ export function useVirtualization(pages: PageMeta[]): Virtualization {
   }, []);
 
   const getObjectUrl = useCallback(
-    (index: number): string | null => objectUrls.current.get(index) ?? null,
+    (index: number): string | null => {
+      const p = pagesRef.current[index];
+      if (!p) return null;
+      return objectUrls.current.get(p.id) ?? null;
+    },
     [],
   );
 
   const getPlaceholderHeight = useCallback(
-    (index: number): number => cachedHeights.current.get(index) ?? ESTIMATED_HEIGHT,
+    (index: number): number => {
+      const p = pagesRef.current[index];
+      if (!p) return ESTIMATED_HEIGHT;
+      return cachedHeights.current.get(p.id) ?? ESTIMATED_HEIGHT;
+    },
     [],
   );
 
   const liveCount = useCallback(() => objectUrls.current.size, []);
+
+  // When the pages array identity changes (chapter switch, autoNext toggle,
+  // reimport), reset the index tracker, garbage-collect URLs no longer in the
+  // new list, and seed prefetch around index 0. Without this, currentIndexRef
+  // carries the prior chapter's tail index and isInRenderWindow returns false
+  // for the new chapter's leading slots — leaving them rendered as placeholders.
+  useEffect(() => {
+    const knownIds = new Set(pages.map((p) => p.id));
+    let changed = false;
+    for (const [id, url] of objectUrls.current.entries()) {
+      if (!knownIds.has(id)) {
+        URL.revokeObjectURL(url);
+        objectUrls.current.delete(id);
+        changed = true;
+      }
+    }
+    // Drop cached heights for pages no longer present too — they'd never be
+    // reused and just leak memory across long sessions of reimport churn.
+    for (const id of cachedHeights.current.keys()) {
+      if (!knownIds.has(id)) cachedHeights.current.delete(id);
+    }
+    currentIndexRef.current = 0;
+    if (changed) forceRender();
+    if (pages.length > 0) {
+      prefetchWindow(0);
+    }
+  }, [pages, forceRender, prefetchWindow]);
 
   useEffect(() => {
     const urls = objectUrls.current;

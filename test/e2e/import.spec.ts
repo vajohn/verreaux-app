@@ -6,7 +6,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FIXTURE = path.resolve(__dirname, '..', 'fixtures', 'library.zip');
 
 test('imports a fixture ZIP and navigates home -> series -> reader', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/verreaux-app/');
   await expect(page.locator('.wordmark')).toBeVisible();
 
   // The hidden file input lives inside the ImportZone. Pick it directly.
