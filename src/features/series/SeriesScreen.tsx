@@ -14,8 +14,11 @@ import {
   updateSeriesTitle,
   setCoverBlobOverride,
   previewReadChaptersToDelete,
+  previewSeriesDeletion,
   deleteReadChapters,
   type DeleteReadChaptersResult,
+  type SeriesDeletionPreview,
+  type DeleteProgress,
 } from '../../db/repos/series.repo';
 import { updateChapterTitle } from '../../db/repos/chapters.repo';
 import { upsertProgress, getProgress, clearSeriesProgress } from '../../db/repos/progress.repo';
@@ -33,6 +36,13 @@ interface SeriesScreenProps {
 
 type OverflowTarget = { kind: 'series' } | { kind: 'chapter'; chapter: Chapter };
 
+function progressLabel(p: DeleteProgress): string {
+  if (p.phase === 'preparing') return 'Preparing…';
+  if (p.phase === 'finalizing') return 'Finalizing…';
+  if (p.total === 0) return 'Cleaning up…';
+  return `Deleting ${p.done} / ${p.total} pages…`;
+}
+
 export function SeriesScreen({ seriesId }: SeriesScreenProps) {
   const profileId = useLibraryStore((s) => s.activeProfileId);
   const currentSeries = useSeriesStore((s) => s.currentSeries);
@@ -42,10 +52,20 @@ export function SeriesScreen({ seriesId }: SeriesScreenProps) {
   const [currentChapterId, setCurrentChapterId] = useState<string | null>(null);
   const [manuallyReadIds, setManuallyReadIds] = useState<Set<string>>(new Set());
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [seriesDeletePreview, setSeriesDeletePreview] =
+    useState<SeriesDeletionPreview | null>(null);
+  const [seriesDeletePreviewLoading, setSeriesDeletePreviewLoading] = useState(false);
+  const [seriesDeleteWorking, setSeriesDeleteWorking] = useState(false);
+  const [seriesDeleteProgress, setSeriesDeleteProgress] =
+    useState<DeleteProgress | null>(null);
   const [confirmClearProgress, setConfirmClearProgress] = useState(false);
+  const [clearProgressWorking, setClearProgressWorking] = useState(false);
   const [deleteReadPreview, setDeleteReadPreview] =
     useState<DeleteReadChaptersResult | null>(null);
+  const [deleteReadPreviewLoading, setDeleteReadPreviewLoading] = useState(false);
   const [deleteReadWorking, setDeleteReadWorking] = useState(false);
+  const [deleteReadProgress, setDeleteReadProgress] =
+    useState<DeleteProgress | null>(null);
   const loadLibrary = useLibraryStore((s) => s.loadLibrary);
   const refreshStorageUsed = useLibraryStore((s) => s.refreshStorageUsed);
 
@@ -119,14 +139,28 @@ export function SeriesScreen({ seriesId }: SeriesScreenProps) {
   }, [editingTitle]);
 
   const handleEscape = useCallback(() => {
-    if (deleteReadWorking) return;
-    if (confirmDelete) { setConfirmDelete(false); return; }
+    if (deleteReadWorking || seriesDeleteWorking || clearProgressWorking) return;
+    if (confirmDelete) {
+      setConfirmDelete(false);
+      setSeriesDeletePreview(null);
+      return;
+    }
     if (confirmClearProgress) { setConfirmClearProgress(false); return; }
     if (deleteReadPreview) { setDeleteReadPreview(null); return; }
     if (editingTitle) { setEditingTitle(null); return; }
     if (coverUrlSheet) { setCoverUrlSheet(false); setCoverUrlStatus('idle'); return; }
     if (overflowTarget) { setOverflowTarget(null); }
-  }, [confirmDelete, confirmClearProgress, deleteReadPreview, deleteReadWorking, editingTitle, coverUrlSheet, overflowTarget]);
+  }, [
+    confirmDelete,
+    confirmClearProgress,
+    deleteReadPreview,
+    deleteReadWorking,
+    seriesDeleteWorking,
+    clearProgressWorking,
+    editingTitle,
+    coverUrlSheet,
+    overflowTarget,
+  ]);
 
   useEscape(handleEscape);
 
@@ -326,7 +360,17 @@ export function SeriesScreen({ seriesId }: SeriesScreenProps) {
           </button>
           <button
             className="series-screen__delete type-button"
-            onClick={() => setConfirmDelete(true)}
+            onClick={async () => {
+              setConfirmDelete(true);
+              setSeriesDeletePreview(null);
+              setSeriesDeletePreviewLoading(true);
+              try {
+                const preview = await previewSeriesDeletion(seriesId);
+                setSeriesDeletePreview(preview);
+              } finally {
+                setSeriesDeletePreviewLoading(false);
+              }
+            }}
             aria-label="Delete series"
           >
             Delete
@@ -516,8 +560,14 @@ export function SeriesScreen({ seriesId }: SeriesScreenProps) {
               onClick={async () => {
                 if (seriesProgress.readChapters === 0) return;
                 setOverflowTarget(null);
-                const preview = await previewReadChaptersToDelete(profileId, seriesId);
-                setDeleteReadPreview(preview);
+                setDeleteReadPreview({ chaptersDeleted: 0, bytesFreed: 0 });
+                setDeleteReadPreviewLoading(true);
+                try {
+                  const preview = await previewReadChaptersToDelete(profileId, seriesId);
+                  setDeleteReadPreview(preview);
+                } finally {
+                  setDeleteReadPreviewLoading(false);
+                }
               }}
             >
               Delete read chapters
@@ -687,7 +737,11 @@ export function SeriesScreen({ seriesId }: SeriesScreenProps) {
             <div className="type-section-label" style={{ color: 'var(--color-gold)' }}>
               Delete read chapters
             </div>
-            {deleteReadPreview.chaptersDeleted === 0 ? (
+            {deleteReadPreviewLoading ? (
+              <div className="type-body" style={{ color: 'var(--color-text-muted)' }}>
+                Calculating…
+              </div>
+            ) : deleteReadPreview.chaptersDeleted === 0 ? (
               <div className="type-body">No read chapters to delete.</div>
             ) : (
               <>
@@ -704,26 +758,56 @@ export function SeriesScreen({ seriesId }: SeriesScreenProps) {
                 </div>
               </>
             )}
+            {deleteReadProgress && (
+              <div style={{ marginTop: 8 }}>
+                <div className="type-nav-label" style={{ color: 'var(--color-text-muted)', marginBottom: 4 }}>
+                  {progressLabel(deleteReadProgress)}
+                </div>
+                <ProgressBar
+                  value={
+                    deleteReadProgress.total > 0
+                      ? deleteReadProgress.done / deleteReadProgress.total
+                      : deleteReadProgress.phase === 'finalizing'
+                        ? 1
+                        : 0
+                  }
+                />
+              </div>
+            )}
             <div className="confirm-sheet__actions">
               <Button
                 variant="ghost"
-                onClick={() => setDeleteReadPreview(null)}
+                onClick={() => {
+                  setDeleteReadPreview(null);
+                  setDeleteReadProgress(null);
+                }}
                 disabled={deleteReadWorking}
               >
                 Cancel
               </Button>
               <Button
-                disabled={deleteReadWorking || deleteReadPreview.chaptersDeleted === 0}
+                disabled={
+                  deleteReadWorking ||
+                  deleteReadPreviewLoading ||
+                  deleteReadPreview.chaptersDeleted === 0
+                }
                 onClick={async () => {
                   setDeleteReadWorking(true);
-                  await deleteReadChapters(profileId, seriesId);
-                  setCurrentChapterId(null);
-                  setManuallyReadIds(new Set());
-                  await loadSeries(seriesId);
-                  await loadLibrary();
-                  await refreshStorageUsed();
-                  setDeleteReadWorking(false);
-                  setDeleteReadPreview(null);
+                  setDeleteReadProgress({ phase: 'preparing', done: 0, total: 0 });
+                  try {
+                    await deleteReadChapters(profileId, seriesId, (p) =>
+                      setDeleteReadProgress(p),
+                    );
+                    setCurrentChapterId(null);
+                    setManuallyReadIds(new Set());
+                    await loadSeries(seriesId);
+                    await loadLibrary();
+                    await refreshStorageUsed();
+                  } finally {
+                    setDeleteReadWorking(false);
+                    setDeleteReadProgress(null);
+                    setDeleteReadPreview(null);
+                  }
                 }}
               >
                 {deleteReadWorking ? 'Deleting…' : 'Delete'}
@@ -743,20 +827,30 @@ export function SeriesScreen({ seriesId }: SeriesScreenProps) {
               Reset progress for {currentSeries.title}? This marks all {seriesProgress.readChapters} read chapter{seriesProgress.readChapters === 1 ? '' : 's'} as unread. Chapters and bookmarks are kept.
             </div>
             <div className="confirm-sheet__actions">
-              <Button variant="ghost" onClick={() => setConfirmClearProgress(false)}>
+              <Button
+                variant="ghost"
+                onClick={() => setConfirmClearProgress(false)}
+                disabled={clearProgressWorking}
+              >
                 Cancel
               </Button>
               <Button
+                disabled={clearProgressWorking}
                 onClick={async () => {
-                  await clearSeriesProgress(profileId, seriesId);
-                  setCurrentChapterId(null);
-                  setManuallyReadIds(new Set());
-                  setConfirmClearProgress(false);
-                  await loadSeries(seriesId);
-                  await loadLibrary();
+                  setClearProgressWorking(true);
+                  try {
+                    await clearSeriesProgress(profileId, seriesId);
+                    setCurrentChapterId(null);
+                    setManuallyReadIds(new Set());
+                    await loadSeries(seriesId);
+                    await loadLibrary();
+                  } finally {
+                    setClearProgressWorking(false);
+                    setConfirmClearProgress(false);
+                  }
                 }}
               >
-                Proceed
+                {clearProgressWorking ? 'Resetting…' : 'Proceed'}
               </Button>
             </div>
           </div>
@@ -770,20 +864,72 @@ export function SeriesScreen({ seriesId }: SeriesScreenProps) {
               Delete series
             </div>
             <div className="type-body">
-              This removes {currentSeries.title} and all its chapters from this profile.
+              This permanently removes {currentSeries.title} and all its chapters from
+              this profile. This cannot be undone.
             </div>
+            {seriesDeletePreviewLoading && (
+              <div className="type-nav-label" style={{ color: 'var(--color-text-muted)' }}>
+                Calculating size…
+              </div>
+            )}
+            {!seriesDeletePreviewLoading && seriesDeletePreview && (
+              <div className="type-nav-label" style={{ color: 'var(--color-text-muted)' }}>
+                {seriesDeletePreview.chapters} chapter
+                {seriesDeletePreview.chapters === 1 ? '' : 's'} ·{' '}
+                {seriesDeletePreview.pages} page
+                {seriesDeletePreview.pages === 1 ? '' : 's'} ·{' '}
+                <strong>{formatBytes(seriesDeletePreview.bytes)}</strong> will be freed.
+              </div>
+            )}
+            {seriesDeleteProgress && (
+              <div style={{ marginTop: 8 }}>
+                <div className="type-nav-label" style={{ color: 'var(--color-text-muted)', marginBottom: 4 }}>
+                  {progressLabel(seriesDeleteProgress)}
+                </div>
+                <ProgressBar
+                  value={
+                    seriesDeleteProgress.total > 0
+                      ? seriesDeleteProgress.done / seriesDeleteProgress.total
+                      : seriesDeleteProgress.phase === 'finalizing'
+                        ? 1
+                        : 0
+                  }
+                />
+              </div>
+            )}
             <div className="confirm-sheet__actions">
-              <Button variant="ghost" onClick={() => setConfirmDelete(false)}>
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  setConfirmDelete(false);
+                  setSeriesDeletePreview(null);
+                  setSeriesDeleteProgress(null);
+                }}
+                disabled={seriesDeleteWorking}
+              >
                 Cancel
               </Button>
               <Button
+                disabled={seriesDeleteWorking || seriesDeletePreviewLoading}
                 onClick={async () => {
-                  await deleteSeries(currentSeries.id);
-                  setConfirmDelete(false);
-                  navigate({ screen: 'home' });
+                  setSeriesDeleteWorking(true);
+                  setSeriesDeleteProgress({ phase: 'preparing', done: 0, total: 0 });
+                  try {
+                    await deleteSeries(currentSeries.id, (p) =>
+                      setSeriesDeleteProgress(p),
+                    );
+                    await loadLibrary();
+                    await refreshStorageUsed();
+                    setConfirmDelete(false);
+                    navigate({ screen: 'home' });
+                  } catch (err) {
+                    console.error('deleteSeries failed', err);
+                    setSeriesDeleteWorking(false);
+                    setSeriesDeleteProgress(null);
+                  }
                 }}
               >
-                Delete
+                {seriesDeleteWorking ? 'Deleting…' : 'Delete'}
               </Button>
             </div>
           </div>

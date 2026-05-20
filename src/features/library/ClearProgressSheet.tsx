@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button } from '../../ui/Button';
+import { ProgressBar } from '../../ui/ProgressBar';
 import { useEscape } from '../../lib/useEscape';
 import { useLibraryStore } from './library.store';
 import { db } from '../../db/db';
@@ -7,11 +8,27 @@ import {
   clearSeriesProgress,
   getProgressForProfile,
 } from '../../db/repos/progress.repo';
-import { deleteReadChapters } from '../../db/repos/series.repo';
+import { deleteReadChapters, type DeleteProgress } from '../../db/repos/series.repo';
 import { formatBytes } from '../../lib/formatBytes';
 import type { Series } from '../../db/types';
 
 type Mode = 'reset' | 'delete';
+
+interface SeriesProgress {
+  seriesIndex: number; // 1-based
+  totalSeries: number;
+  seriesTitle: string;
+  inner: DeleteProgress | null;
+}
+
+function progressLabel(sp: SeriesProgress, isDestructive: boolean): string {
+  const head = `${isDestructive ? 'Deleting' : 'Resetting'} ${sp.seriesIndex} / ${sp.totalSeries}: ${sp.seriesTitle}`;
+  if (!sp.inner) return head;
+  if (sp.inner.phase === 'preparing') return `${head} — preparing…`;
+  if (sp.inner.phase === 'finalizing') return `${head} — finalizing…`;
+  if (sp.inner.total === 0) return `${head} — cleaning up…`;
+  return `${head} — ${sp.inner.done} / ${sp.inner.total} pages`;
+}
 
 interface ProgressEntry {
   series: Series;
@@ -34,6 +51,7 @@ export function ClearProgressSheet({ onClose }: ClearProgressSheetProps) {
   const [loading, setLoading] = useState(true);
   const [confirm, setConfirm] = useState(false);
   const [working, setWorking] = useState(false);
+  const [seriesProgress, setSeriesProgress] = useState<SeriesProgress | null>(null);
 
   const handleEscape = useCallback(() => {
     if (working) return;
@@ -115,15 +133,39 @@ export function ClearProgressSheet({ onClose }: ClearProgressSheetProps) {
     if (selected.size === 0) return;
     setWorking(true);
     const ids = Array.from(selected);
-    for (const id of ids) {
-      if (mode === 'delete') await deleteReadChapters(profileId, id);
-      else await clearSeriesProgress(profileId, id);
+    const total = ids.length;
+    const titleById = new Map(entries.map((e) => [e.series.id, e.series.title] as const));
+    try {
+      for (let i = 0; i < ids.length; i += 1) {
+        const id = ids[i];
+        const title = titleById.get(id) ?? 'series';
+        setSeriesProgress({
+          seriesIndex: i + 1,
+          totalSeries: total,
+          seriesTitle: title,
+          inner: null,
+        });
+        if (mode === 'delete') {
+          await deleteReadChapters(profileId, id, (p) =>
+            setSeriesProgress({
+              seriesIndex: i + 1,
+              totalSeries: total,
+              seriesTitle: title,
+              inner: p,
+            }),
+          );
+        } else {
+          await clearSeriesProgress(profileId, id);
+        }
+      }
+      await loadLibrary();
+      await refreshStorageUsed();
+    } finally {
+      setSeriesProgress(null);
+      setWorking(false);
+      setConfirm(false);
+      onClose();
     }
-    await loadLibrary();
-    await refreshStorageUsed();
-    setWorking(false);
-    setConfirm(false);
-    onClose();
   }
 
   const isDestructive = mode === 'delete';
@@ -251,6 +293,34 @@ export function ClearProgressSheet({ onClose }: ClearProgressSheetProps) {
                 ? `Permanently delete ${totalChapters} read chapter${totalChapters === 1 ? '' : 's'} across ${selected.size} series, freeing about ${formatBytes(totalBytes)}? This cannot be undone.`
                 : `Reset reading progress for ${selected.size} series? This cannot be undone.`}
             </div>
+            {seriesProgress && (
+              <div style={{ marginTop: 8 }}>
+                <div
+                  className="type-nav-label"
+                  style={{
+                    color: 'var(--color-text-muted)',
+                    marginBottom: 4,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {progressLabel(seriesProgress, isDestructive)}
+                </div>
+                <ProgressBar
+                  value={(() => {
+                    const outer = (seriesProgress.seriesIndex - 1) / seriesProgress.totalSeries;
+                    const inner =
+                      seriesProgress.inner && seriesProgress.inner.total > 0
+                        ? seriesProgress.inner.done / seriesProgress.inner.total
+                        : seriesProgress.inner?.phase === 'finalizing'
+                          ? 1
+                          : 0;
+                    return outer + inner / seriesProgress.totalSeries;
+                  })()}
+                />
+              </div>
+            )}
             <div className="confirm-sheet__actions">
               <Button variant="ghost" onClick={() => setConfirm(false)} disabled={working}>
                 Cancel

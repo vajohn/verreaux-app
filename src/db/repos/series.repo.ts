@@ -104,27 +104,86 @@ export async function setSortOrder(seriesId: string, sortOrder: number): Promise
   await db.series.update(seriesId, { sortOrder });
 }
 
-export async function deleteSeries(seriesId: string): Promise<void> {
+// Blobs are deleted in chunks (outside the final records transaction) so the
+// UI can render progress updates between batches. The remaining record
+// cleanup runs in a single fast transaction at the end.
+const DELETE_BATCH_SIZE = 100;
+
+export interface DeleteProgress {
+  phase: 'preparing' | 'blobs' | 'finalizing';
+  done: number;
+  total: number;
+}
+
+export interface SeriesDeletionPreview {
+  chapters: number;
+  pages: number;
+  bytes: number;
+}
+
+export async function previewSeriesDeletion(
+  seriesId: string,
+): Promise<SeriesDeletionPreview> {
+  const chapters = await db.chapters.where('seriesId').equals(seriesId).toArray();
+  const chapterIds = chapters.map((c) => c.id);
+  const pages = await db.pages.where('chapterId').anyOf(chapterIds).toArray();
+  let bytes = 0;
+  for (const p of pages) {
+    const b = await db.blobs.get(p.blobId);
+    if (b) bytes += b.blob.size;
+  }
+  const series = await db.series.get(seriesId);
+  if (series?.coverImageId) {
+    const b = await db.blobs.get(series.coverImageId);
+    if (b) bytes += b.blob.size;
+  }
+  if (series?.coverBlobId) {
+    const b = await db.blobs.get(series.coverBlobId);
+    if (b) bytes += b.blob.size;
+  }
+  return { chapters: chapters.length, pages: pages.length, bytes };
+}
+
+export async function deleteSeries(
+  seriesId: string,
+  onProgress?: (p: DeleteProgress) => void,
+): Promise<void> {
+  onProgress?.({ phase: 'preparing', done: 0, total: 0 });
+
+  const chapters = await db.chapters.where('seriesId').equals(seriesId).toArray();
+  const chapterIds = chapters.map((c) => c.id);
+
+  const pages = await db.pages.where('chapterId').anyOf(chapterIds).toArray();
+  const pageBlobIds = pages.map((p) => p.blobId);
+
+  const series = await db.series.get(seriesId);
+  const coverBlobIds: string[] = [];
+  if (series?.coverImageId) coverBlobIds.push(series.coverImageId);
+  if (series?.coverBlobId) coverBlobIds.push(series.coverBlobId);
+
+  const allBlobIds = [...pageBlobIds, ...coverBlobIds];
+  const totalBlobs = allBlobIds.length;
+
+  onProgress?.({ phase: 'blobs', done: 0, total: totalBlobs });
+
+  for (let i = 0; i < allBlobIds.length; i += DELETE_BATCH_SIZE) {
+    const batch = allBlobIds.slice(i, i + DELETE_BATCH_SIZE);
+    await db.blobs.bulkDelete(batch);
+    onProgress?.({
+      phase: 'blobs',
+      done: Math.min(i + DELETE_BATCH_SIZE, totalBlobs),
+      total: totalBlobs,
+    });
+  }
+
+  onProgress?.({ phase: 'finalizing', done: totalBlobs, total: totalBlobs });
+
   await db.transaction(
     'rw',
-    [db.series, db.chapters, db.pages, db.blobs, db.readingProgress, db.bookmarks],
+    [db.series, db.chapters, db.pages, db.readingProgress, db.bookmarks],
     async () => {
-      const chapters = await db.chapters.where('seriesId').equals(seriesId).toArray();
-      const chapterIds = chapters.map((c) => c.id);
-
-      const pages = await db.pages.where('chapterId').anyOf(chapterIds).toArray();
-      const pageBlobIds = pages.map((p) => p.blobId);
-
-      await db.blobs.bulkDelete(pageBlobIds);
       await db.pages.where('chapterId').anyOf(chapterIds).delete();
       await db.chapters.where('seriesId').equals(seriesId).delete();
-
-      const series = await db.series.get(seriesId);
-      const coverBlobIds: string[] = [];
-      if (series?.coverImageId) coverBlobIds.push(series.coverImageId);
-      if (series?.coverBlobId) coverBlobIds.push(series.coverBlobId);
-      if (coverBlobIds.length > 0) await db.blobs.bulkDelete(coverBlobIds);
-
       await db.series.delete(seriesId);
       await db.readingProgress.where('seriesId').equals(seriesId).delete();
       await db.bookmarks.where('seriesId').equals(seriesId).delete();
@@ -166,37 +225,54 @@ export async function previewReadChaptersToDelete(
 export async function deleteReadChapters(
   profileId: string,
   seriesId: string,
+  onProgress?: (p: DeleteProgress) => void,
 ): Promise<DeleteReadChaptersResult> {
-  return db.transaction(
+  onProgress?.({ phase: 'preparing', done: 0, total: 0 });
+
+  const progress = await db.readingProgress
+    .where('[profileId+seriesId]')
+    .equals([profileId, seriesId])
+    .first();
+  if (!progress) return { chaptersDeleted: 0, bytesFreed: 0 };
+
+  const current = await db.chapters.get(progress.currentChapterId);
+  if (!current) return { chaptersDeleted: 0, bytesFreed: 0 };
+
+  const readChapters = await db.chapters
+    .where('[seriesId+order]')
+    .between([seriesId, -Infinity], [seriesId, current.order], true, true)
+    .toArray();
+  const chapterIds = readChapters.map((c) => c.id);
+  if (chapterIds.length === 0) return { chaptersDeleted: 0, bytesFreed: 0 };
+
+  const pages = await db.pages.where('chapterId').anyOf(chapterIds).toArray();
+  const blobIds = pages.map((p) => p.blobId);
+
+  let bytesFreed = 0;
+  for (const id of blobIds) {
+    const b = await db.blobs.get(id);
+    if (b) bytesFreed += b.blob.size;
+  }
+
+  const totalBlobs = blobIds.length;
+  onProgress?.({ phase: 'blobs', done: 0, total: totalBlobs });
+
+  for (let i = 0; i < blobIds.length; i += DELETE_BATCH_SIZE) {
+    const batch = blobIds.slice(i, i + DELETE_BATCH_SIZE);
+    await db.blobs.bulkDelete(batch);
+    onProgress?.({
+      phase: 'blobs',
+      done: Math.min(i + DELETE_BATCH_SIZE, totalBlobs),
+      total: totalBlobs,
+    });
+  }
+
+  onProgress?.({ phase: 'finalizing', done: totalBlobs, total: totalBlobs });
+
+  await db.transaction(
     'rw',
-    [db.series, db.chapters, db.pages, db.blobs, db.readingProgress, db.bookmarks],
+    [db.series, db.chapters, db.pages, db.readingProgress, db.bookmarks],
     async () => {
-      const progress = await db.readingProgress
-        .where('[profileId+seriesId]')
-        .equals([profileId, seriesId])
-        .first();
-      if (!progress) return { chaptersDeleted: 0, bytesFreed: 0 };
-
-      const current = await db.chapters.get(progress.currentChapterId);
-      if (!current) return { chaptersDeleted: 0, bytesFreed: 0 };
-
-      const readChapters = await db.chapters
-        .where('[seriesId+order]')
-        .between([seriesId, -Infinity], [seriesId, current.order], true, true)
-        .toArray();
-      const chapterIds = readChapters.map((c) => c.id);
-      if (chapterIds.length === 0) return { chaptersDeleted: 0, bytesFreed: 0 };
-
-      const pages = await db.pages.where('chapterId').anyOf(chapterIds).toArray();
-      const blobIds = pages.map((p) => p.blobId);
-
-      let bytesFreed = 0;
-      for (const id of blobIds) {
-        const b = await db.blobs.get(id);
-        if (b) bytesFreed += b.blob.size;
-      }
-
-      await db.blobs.bulkDelete(blobIds);
       await db.pages.where('chapterId').anyOf(chapterIds).delete();
       await db.bookmarks.where('chapterId').anyOf(chapterIds).delete();
       await db.chapters.where('id').anyOf(chapterIds).delete();
@@ -229,10 +305,10 @@ export async function deleteReadChapters(
         // a meaningful "lastRead / lastKnown" pair after everything is wiped.
         lastKnownMaxOrder: maxOrder,
       });
-
-      return { chaptersDeleted: chapterIds.length, bytesFreed };
     },
   );
+
+  return { chaptersDeleted: chapterIds.length, bytesFreed };
 }
 
 /**
