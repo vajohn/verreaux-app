@@ -3,7 +3,7 @@ import type { ZipReader } from '../../lib/zip';
 export type ImportType = 'type1' | 'type2' | 'type3';
 export type ImportContext = 'home' | 'series';
 
-const IMAGE_EXTS = new Set(['.webp', '.jpg', '.jpeg', '.png']);
+const IMAGE_EXTS = new Set(['.webp', '.jpg', '.jpeg', '.png', '.svg']);
 
 function ext(name: string): string {
   const dot = name.lastIndexOf('.');

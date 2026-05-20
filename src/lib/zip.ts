@@ -84,15 +84,36 @@ class ZipReaderImpl implements ZipReader {
     const fileEntry = entry as Entry & {
       getData: (writer: BlobWriter) => Promise<Blob>;
     };
-    // BlobWriter accumulates into a Blob; for STORED entries (already-compressed
-    // images) this is effectively a pass-through copy from the source Blob.
-    return fileEntry.getData(new BlobWriter());
+    // Pass the MIME type through to the resulting Blob. Raster formats (PNG,
+    // JPEG, WebP) work in <img src="blob:..."> even with empty type because
+    // browsers content-sniff them, but SVG explicitly does NOT sniff (anti-
+    // XSS) — without `type: image/svg+xml` the blob URL renders blank.
+    const mime = mimeForPath(path);
+    return fileEntry.getData(new BlobWriter(mime));
   }
 
   async close(): Promise<void> {
     if (this.closed) return;
     this.closed = true;
     await this.inner.close();
+  }
+}
+
+function mimeForPath(path: string): string {
+  const dot = path.lastIndexOf('.');
+  if (dot < 0) return '';
+  switch (path.slice(dot).toLowerCase()) {
+    case '.png':
+      return 'image/png';
+    case '.jpg':
+    case '.jpeg':
+      return 'image/jpeg';
+    case '.webp':
+      return 'image/webp';
+    case '.svg':
+      return 'image/svg+xml';
+    default:
+      return '';
   }
 }
 

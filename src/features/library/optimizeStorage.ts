@@ -60,6 +60,14 @@ export async function runOptimizeStorage({
             progress.skipped += 1;
             return;
           }
+          // SVG is a vector format — rasterizing to JPEG would lose quality
+          // at every reader zoom level and `createImageBitmap` on SVG blobs
+          // is inconsistent across browsers. Leave them as-is.
+          if (original.type === 'image/svg+xml') {
+            progress.bytesAfter += original.size;
+            progress.skipped += 1;
+            return;
+          }
           const compressed = await compressImageBlob(original);
           if (compressed.size < original.size) {
             await db.blobs.put({ id: p.blobId, blob: compressed });

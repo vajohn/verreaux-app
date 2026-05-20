@@ -42,7 +42,7 @@ function getDirectChildren(zip: ZipReader, folder: string): DirectChildren {
   return { files: Array.from(files), folders: Array.from(folders) };
 }
 
-const COVER_RE = /^cover\.(webp|jpg|jpeg|png)$/i;
+const COVER_RE = /^cover\.(webp|jpg|jpeg|png|svg)$/i;
 
 export async function walkChapter(
   zip: ZipReader,
@@ -51,7 +51,7 @@ export async function walkChapter(
 ): Promise<ChapterEntry> {
   const title = chapterPath.replace(/\/$/, '').split('/').pop() ?? 'Chapter';
   const { files } = getDirectChildren(zip, chapterPath);
-  const IMAGE_EXTS = new Set(['.webp', '.jpg', '.jpeg', '.png']);
+  const IMAGE_EXTS = new Set(['.webp', '.jpg', '.jpeg', '.png', '.svg']);
   const imageFiles: PageEntry[] = files
     .filter((f) => IMAGE_EXTS.has(extOf(f)))
     .map((f) => ({
