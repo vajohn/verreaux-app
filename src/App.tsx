@@ -5,6 +5,8 @@ import { LibraryScreen } from './features/library/LibraryScreen';
 import { SeriesScreen } from './features/series/SeriesScreen';
 import { ReaderScreen } from './features/reader/ReaderScreen';
 import { UpdatePrompt } from './ui/UpdatePrompt';
+import { BackgroundTaskBar } from './features/background/BackgroundTaskBar';
+import { startImportBridge } from './features/background/importBridge';
 
 export function App() {
   const route = useRoute();
@@ -22,6 +24,8 @@ export function App() {
     }
   }, []);
 
+  useEffect(() => startImportBridge(), []);
+
   let screen;
   switch (route.screen) {
     case 'series':
@@ -38,6 +42,7 @@ export function App() {
   return (
     <>
       {screen}
+      <BackgroundTaskBar />
       <UpdatePrompt />
     </>
   );

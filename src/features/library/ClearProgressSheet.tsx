@@ -1,34 +1,18 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button } from '../../ui/Button';
-import { ProgressBar } from '../../ui/ProgressBar';
 import { useEscape } from '../../lib/useEscape';
 import { useLibraryStore } from './library.store';
+import { useBackgroundStore } from '../background/background.store';
 import { db } from '../../db/db';
 import {
   clearSeriesProgress,
   getProgressForProfile,
 } from '../../db/repos/progress.repo';
-import { deleteReadChapters, type DeleteProgress } from '../../db/repos/series.repo';
+import { deleteReadChapters } from '../../db/repos/series.repo';
 import { formatBytes } from '../../lib/formatBytes';
 import type { Series } from '../../db/types';
 
 type Mode = 'reset' | 'delete';
-
-interface SeriesProgress {
-  seriesIndex: number; // 1-based
-  totalSeries: number;
-  seriesTitle: string;
-  inner: DeleteProgress | null;
-}
-
-function progressLabel(sp: SeriesProgress, isDestructive: boolean): string {
-  const head = `${isDestructive ? 'Deleting' : 'Resetting'} ${sp.seriesIndex} / ${sp.totalSeries}: ${sp.seriesTitle}`;
-  if (!sp.inner) return head;
-  if (sp.inner.phase === 'preparing') return `${head} — preparing…`;
-  if (sp.inner.phase === 'finalizing') return `${head} — finalizing…`;
-  if (sp.inner.total === 0) return `${head} — cleaning up…`;
-  return `${head} — ${sp.inner.done} / ${sp.inner.total} pages`;
-}
 
 interface ProgressEntry {
   series: Series;
@@ -50,14 +34,12 @@ export function ClearProgressSheet({ onClose }: ClearProgressSheetProps) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [confirm, setConfirm] = useState(false);
-  const [working, setWorking] = useState(false);
-  const [seriesProgress, setSeriesProgress] = useState<SeriesProgress | null>(null);
+  const bgRunning = useBackgroundStore((s) => s.current !== null);
 
   const handleEscape = useCallback(() => {
-    if (working) return;
     if (confirm) { setConfirm(false); return; }
     onClose();
-  }, [confirm, working, onClose]);
+  }, [confirm, onClose]);
 
   useEscape(handleEscape);
 
@@ -129,43 +111,58 @@ export function ClearProgressSheet({ onClose }: ClearProgressSheetProps) {
     });
   }
 
-  async function handleProceed(): Promise<void> {
+  function handleProceed(): void {
     if (selected.size === 0) return;
-    setWorking(true);
     const ids = Array.from(selected);
     const total = ids.length;
     const titleById = new Map(entries.map((e) => [e.series.id, e.series.title] as const));
-    try {
-      for (let i = 0; i < ids.length; i += 1) {
-        const id = ids[i];
-        const title = titleById.get(id) ?? 'series';
-        setSeriesProgress({
-          seriesIndex: i + 1,
-          totalSeries: total,
-          seriesTitle: title,
-          inner: null,
-        });
-        if (mode === 'delete') {
-          await deleteReadChapters(profileId, id, (p) =>
-            setSeriesProgress({
-              seriesIndex: i + 1,
-              totalSeries: total,
-              seriesTitle: title,
-              inner: p,
-            }),
-          );
-        } else {
-          await clearSeriesProgress(profileId, id);
+    const isDestructiveLocal = mode === 'delete';
+    const taskId = `bulk-${mode}:${Date.now()}`;
+    const started = useBackgroundStore.getState().start({
+      id: taskId,
+      kind: isDestructiveLocal ? 'delete-read-chapters' : 'clear-progress',
+      label: isDestructiveLocal
+        ? `Deleting read chapters · ${total} series`
+        : `Resetting progress · ${total} series`,
+      progress: null,
+    });
+    if (!started) return;
+    setConfirm(false);
+    onClose();
+    void (async () => {
+      const { update, finish } = useBackgroundStore.getState();
+      try {
+        for (let i = 0; i < ids.length; i += 1) {
+          const id = ids[i];
+          const title = titleById.get(id) ?? 'series';
+          const baseSub = `${i + 1} / ${total} · ${title}`;
+          update({ subLabel: baseSub, progress: i / total });
+          if (isDestructiveLocal) {
+            await deleteReadChapters(profileId, id, (p) => {
+              const inner =
+                p.total > 0
+                  ? p.done / p.total
+                  : p.phase === 'finalizing'
+                    ? 1
+                    : 0;
+              update({
+                subLabel:
+                  p.total > 0 ? `${baseSub} — ${p.done} / ${p.total} pages` : baseSub,
+                progress: i / total + inner / total,
+              });
+            });
+          } else {
+            await clearSeriesProgress(profileId, id);
+          }
         }
+        await loadLibrary();
+        await refreshStorageUsed();
+      } catch (err) {
+        console.error('bulk clear/delete failed', err);
+      } finally {
+        finish(taskId);
       }
-      await loadLibrary();
-      await refreshStorageUsed();
-    } finally {
-      setSeriesProgress(null);
-      setWorking(false);
-      setConfirm(false);
-      onClose();
-    }
+    })();
   }
 
   const isDestructive = mode === 'delete';
@@ -267,7 +264,7 @@ export function ClearProgressSheet({ onClose }: ClearProgressSheetProps) {
         )}
 
         <div className="confirm-sheet__actions">
-          <Button variant="ghost" onClick={onClose} disabled={working}>
+          <Button variant="ghost" onClick={onClose}>
             Cancel
           </Button>
           <Button
@@ -275,7 +272,7 @@ export function ClearProgressSheet({ onClose }: ClearProgressSheetProps) {
               if (selected.size === 0) return;
               setConfirm(true);
             }}
-            disabled={loading || working || selected.size === 0}
+            disabled={loading || selected.size === 0 || bgRunning}
           >
             {proceedLabel}
           </Button>
@@ -293,40 +290,12 @@ export function ClearProgressSheet({ onClose }: ClearProgressSheetProps) {
                 ? `Permanently delete ${totalChapters} read chapter${totalChapters === 1 ? '' : 's'} across ${selected.size} series, freeing about ${formatBytes(totalBytes)}? This cannot be undone.`
                 : `Reset reading progress for ${selected.size} series? This cannot be undone.`}
             </div>
-            {seriesProgress && (
-              <div style={{ marginTop: 8 }}>
-                <div
-                  className="type-nav-label"
-                  style={{
-                    color: 'var(--color-text-muted)',
-                    marginBottom: 4,
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {progressLabel(seriesProgress, isDestructive)}
-                </div>
-                <ProgressBar
-                  value={(() => {
-                    const outer = (seriesProgress.seriesIndex - 1) / seriesProgress.totalSeries;
-                    const inner =
-                      seriesProgress.inner && seriesProgress.inner.total > 0
-                        ? seriesProgress.inner.done / seriesProgress.inner.total
-                        : seriesProgress.inner?.phase === 'finalizing'
-                          ? 1
-                          : 0;
-                    return outer + inner / seriesProgress.totalSeries;
-                  })()}
-                />
-              </div>
-            )}
             <div className="confirm-sheet__actions">
-              <Button variant="ghost" onClick={() => setConfirm(false)} disabled={working}>
+              <Button variant="ghost" onClick={() => setConfirm(false)}>
                 Cancel
               </Button>
-              <Button onClick={() => void handleProceed()} disabled={working}>
-                {working ? (isDestructive ? 'Deleting…' : 'Resetting…') : (isDestructive ? 'Delete' : 'Reset')}
+              <Button onClick={handleProceed} disabled={bgRunning}>
+                {isDestructive ? 'Delete' : 'Reset'}
               </Button>
             </div>
           </div>

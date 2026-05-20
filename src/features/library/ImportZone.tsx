@@ -2,6 +2,7 @@ import { useRef, useState, type DragEvent } from 'react';
 import { useImportStore } from '../import/import.store';
 import { startImport, cancelImport, continueImport } from '../import/importController';
 import { useLibraryStore } from './library.store';
+import { useBackgroundStore } from '../background/background.store';
 import { ProgressBar } from '../../ui/ProgressBar';
 import { Button } from '../../ui/Button';
 import { formatBytes } from '../../lib/formatBytes';
@@ -17,9 +18,15 @@ export function ImportZone({ context, targetSeriesId }: ImportZoneProps) {
   const state = useImportStore((s) => s.state);
   const reset = useImportStore((s) => s.reset);
   const activeProfileId = useLibraryStore((s) => s.activeProfileId);
+  // Block imports while a non-import background task (delete/clear) holds the
+  // single-slot store — letting both run would race IDB writes.
+  const bgBlocked = useBackgroundStore(
+    (s) => s.current !== null && s.current.kind !== 'import',
+  );
   const [dragOver, setDragOver] = useState(false);
 
   function onPick(file: File): void {
+    if (bgBlocked) return;
     startImport({ file, context, targetSeriesId, activeProfileId });
   }
 
@@ -121,6 +128,7 @@ export function ImportZone({ context, targetSeriesId }: ImportZoneProps) {
     <div
       className={`import-zone${dragOver ? ' import-zone--drag' : ''}`}
       onDragOver={(e) => {
+        if (bgBlocked) return;
         e.preventDefault();
         setDragOver(true);
       }}
@@ -129,9 +137,11 @@ export function ImportZone({ context, targetSeriesId }: ImportZoneProps) {
     >
       <div className="type-section-label import-zone__head">Import a library</div>
       <div className="type-body import-zone__msg">
-        Drag a ZIP here, or choose a file to begin.
+        {bgBlocked
+          ? 'A background task is running. Import will be available when it finishes.'
+          : 'Drag a ZIP here, or choose a file to begin.'}
       </div>
-      <Button onClick={() => inputRef.current?.click()}>Choose ZIP</Button>
+      <Button onClick={() => inputRef.current?.click()} disabled={bgBlocked}>Choose ZIP</Button>
       <input
         ref={inputRef}
         type="file"

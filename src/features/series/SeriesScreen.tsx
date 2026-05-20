@@ -27,6 +27,7 @@ import { sniffImageType } from './imageSniff';
 import { useSeriesProgress } from '../library/useSeriesProgress';
 import { formatRelativeTime } from '../../lib/formatRelativeTime';
 import { formatBytes } from '../../lib/formatBytes';
+import { useBackgroundStore } from '../background/background.store';
 import type { Chapter } from '../../db/types';
 import './SeriesScreen.css';
 
@@ -55,19 +56,13 @@ export function SeriesScreen({ seriesId }: SeriesScreenProps) {
   const [seriesDeletePreview, setSeriesDeletePreview] =
     useState<SeriesDeletionPreview | null>(null);
   const [seriesDeletePreviewLoading, setSeriesDeletePreviewLoading] = useState(false);
-  const [seriesDeleteWorking, setSeriesDeleteWorking] = useState(false);
-  const [seriesDeleteProgress, setSeriesDeleteProgress] =
-    useState<DeleteProgress | null>(null);
   const [confirmClearProgress, setConfirmClearProgress] = useState(false);
-  const [clearProgressWorking, setClearProgressWorking] = useState(false);
   const [deleteReadPreview, setDeleteReadPreview] =
     useState<DeleteReadChaptersResult | null>(null);
   const [deleteReadPreviewLoading, setDeleteReadPreviewLoading] = useState(false);
-  const [deleteReadWorking, setDeleteReadWorking] = useState(false);
-  const [deleteReadProgress, setDeleteReadProgress] =
-    useState<DeleteProgress | null>(null);
   const loadLibrary = useLibraryStore((s) => s.loadLibrary);
   const refreshStorageUsed = useLibraryStore((s) => s.refreshStorageUsed);
+  const bgRunning = useBackgroundStore((s) => s.current !== null);
 
   // Overflow sheet state
   const [overflowTarget, setOverflowTarget] = useState<OverflowTarget | null>(null);
@@ -139,7 +134,6 @@ export function SeriesScreen({ seriesId }: SeriesScreenProps) {
   }, [editingTitle]);
 
   const handleEscape = useCallback(() => {
-    if (deleteReadWorking || seriesDeleteWorking || clearProgressWorking) return;
     if (confirmDelete) {
       setConfirmDelete(false);
       setSeriesDeletePreview(null);
@@ -154,9 +148,6 @@ export function SeriesScreen({ seriesId }: SeriesScreenProps) {
     confirmDelete,
     confirmClearProgress,
     deleteReadPreview,
-    deleteReadWorking,
-    seriesDeleteWorking,
-    clearProgressWorking,
     editingTitle,
     coverUrlSheet,
     overflowTarget,
@@ -758,59 +749,59 @@ export function SeriesScreen({ seriesId }: SeriesScreenProps) {
                 </div>
               </>
             )}
-            {deleteReadProgress && (
-              <div style={{ marginTop: 8 }}>
-                <div className="type-nav-label" style={{ color: 'var(--color-text-muted)', marginBottom: 4 }}>
-                  {progressLabel(deleteReadProgress)}
-                </div>
-                <ProgressBar
-                  value={
-                    deleteReadProgress.total > 0
-                      ? deleteReadProgress.done / deleteReadProgress.total
-                      : deleteReadProgress.phase === 'finalizing'
-                        ? 1
-                        : 0
-                  }
-                />
-              </div>
-            )}
             <div className="confirm-sheet__actions">
               <Button
                 variant="ghost"
-                onClick={() => {
-                  setDeleteReadPreview(null);
-                  setDeleteReadProgress(null);
-                }}
-                disabled={deleteReadWorking}
+                onClick={() => setDeleteReadPreview(null)}
               >
                 Cancel
               </Button>
               <Button
                 disabled={
-                  deleteReadWorking ||
                   deleteReadPreviewLoading ||
-                  deleteReadPreview.chaptersDeleted === 0
+                  deleteReadPreview.chaptersDeleted === 0 ||
+                  bgRunning
                 }
-                onClick={async () => {
-                  setDeleteReadWorking(true);
-                  setDeleteReadProgress({ phase: 'preparing', done: 0, total: 0 });
-                  try {
-                    await deleteReadChapters(profileId, seriesId, (p) =>
-                      setDeleteReadProgress(p),
-                    );
-                    setCurrentChapterId(null);
-                    setManuallyReadIds(new Set());
-                    await loadSeries(seriesId);
-                    await loadLibrary();
-                    await refreshStorageUsed();
-                  } finally {
-                    setDeleteReadWorking(false);
-                    setDeleteReadProgress(null);
-                    setDeleteReadPreview(null);
-                  }
+                onClick={() => {
+                  const title = currentSeries.title;
+                  const started = useBackgroundStore.getState().start({
+                    id: `delete-read:${seriesId}`,
+                    kind: 'delete-read-chapters',
+                    label: `Deleting read chapters · ${title}`,
+                    progress: null,
+                  });
+                  if (!started) return;
+                  setDeleteReadPreview(null);
+                  setCurrentChapterId(null);
+                  setManuallyReadIds(new Set());
+                  void (async () => {
+                    const { update, finish } = useBackgroundStore.getState();
+                    try {
+                      await deleteReadChapters(profileId, seriesId, (p) => {
+                        const pct =
+                          p.total > 0
+                            ? p.done / p.total
+                            : p.phase === 'finalizing'
+                              ? 1
+                              : null;
+                        update({
+                          subLabel:
+                            p.total > 0 ? `${p.done} / ${p.total} pages` : progressLabel(p),
+                          progress: pct,
+                        });
+                      });
+                      await loadSeries(seriesId);
+                      await loadLibrary();
+                      await refreshStorageUsed();
+                    } catch (err) {
+                      console.error('deleteReadChapters failed', err);
+                    } finally {
+                      finish(`delete-read:${seriesId}`);
+                    }
+                  })();
                 }}
               >
-                {deleteReadWorking ? 'Deleting…' : 'Delete'}
+                Delete
               </Button>
             </div>
           </div>
@@ -830,27 +821,38 @@ export function SeriesScreen({ seriesId }: SeriesScreenProps) {
               <Button
                 variant="ghost"
                 onClick={() => setConfirmClearProgress(false)}
-                disabled={clearProgressWorking}
               >
                 Cancel
               </Button>
               <Button
-                disabled={clearProgressWorking}
-                onClick={async () => {
-                  setClearProgressWorking(true);
-                  try {
-                    await clearSeriesProgress(profileId, seriesId);
-                    setCurrentChapterId(null);
-                    setManuallyReadIds(new Set());
-                    await loadSeries(seriesId);
-                    await loadLibrary();
-                  } finally {
-                    setClearProgressWorking(false);
-                    setConfirmClearProgress(false);
-                  }
+                disabled={bgRunning}
+                onClick={() => {
+                  const title = currentSeries.title;
+                  const started = useBackgroundStore.getState().start({
+                    id: `clear-progress:${seriesId}`,
+                    kind: 'clear-progress',
+                    label: `Resetting progress · ${title}`,
+                    progress: null,
+                  });
+                  if (!started) return;
+                  setConfirmClearProgress(false);
+                  setCurrentChapterId(null);
+                  setManuallyReadIds(new Set());
+                  void (async () => {
+                    const { finish } = useBackgroundStore.getState();
+                    try {
+                      await clearSeriesProgress(profileId, seriesId);
+                      await loadSeries(seriesId);
+                      await loadLibrary();
+                    } catch (err) {
+                      console.error('clearSeriesProgress failed', err);
+                    } finally {
+                      finish(`clear-progress:${seriesId}`);
+                    }
+                  })();
                 }}
               >
-                {clearProgressWorking ? 'Resetting…' : 'Proceed'}
+                Proceed
               </Button>
             </div>
           </div>
@@ -881,55 +883,58 @@ export function SeriesScreen({ seriesId }: SeriesScreenProps) {
                 <strong>{formatBytes(seriesDeletePreview.bytes)}</strong> will be freed.
               </div>
             )}
-            {seriesDeleteProgress && (
-              <div style={{ marginTop: 8 }}>
-                <div className="type-nav-label" style={{ color: 'var(--color-text-muted)', marginBottom: 4 }}>
-                  {progressLabel(seriesDeleteProgress)}
-                </div>
-                <ProgressBar
-                  value={
-                    seriesDeleteProgress.total > 0
-                      ? seriesDeleteProgress.done / seriesDeleteProgress.total
-                      : seriesDeleteProgress.phase === 'finalizing'
-                        ? 1
-                        : 0
-                  }
-                />
-              </div>
-            )}
             <div className="confirm-sheet__actions">
               <Button
                 variant="ghost"
                 onClick={() => {
                   setConfirmDelete(false);
                   setSeriesDeletePreview(null);
-                  setSeriesDeleteProgress(null);
                 }}
-                disabled={seriesDeleteWorking}
               >
                 Cancel
               </Button>
               <Button
-                disabled={seriesDeleteWorking || seriesDeletePreviewLoading}
-                onClick={async () => {
-                  setSeriesDeleteWorking(true);
-                  setSeriesDeleteProgress({ phase: 'preparing', done: 0, total: 0 });
-                  try {
-                    await deleteSeries(currentSeries.id, (p) =>
-                      setSeriesDeleteProgress(p),
-                    );
-                    await loadLibrary();
-                    await refreshStorageUsed();
-                    setConfirmDelete(false);
-                    navigate({ screen: 'home' });
-                  } catch (err) {
-                    console.error('deleteSeries failed', err);
-                    setSeriesDeleteWorking(false);
-                    setSeriesDeleteProgress(null);
-                  }
+                disabled={seriesDeletePreviewLoading || bgRunning}
+                onClick={() => {
+                  const id = currentSeries.id;
+                  const title = currentSeries.title;
+                  const started = useBackgroundStore.getState().start({
+                    id: `delete-series:${id}`,
+                    kind: 'delete-series',
+                    label: `Deleting ${title}`,
+                    progress: null,
+                  });
+                  if (!started) return;
+                  setConfirmDelete(false);
+                  setSeriesDeletePreview(null);
+                  navigate({ screen: 'home' });
+                  void (async () => {
+                    const { update, finish } = useBackgroundStore.getState();
+                    try {
+                      await deleteSeries(id, (p) => {
+                        const pct =
+                          p.total > 0
+                            ? p.done / p.total
+                            : p.phase === 'finalizing'
+                              ? 1
+                              : null;
+                        update({
+                          subLabel:
+                            p.total > 0 ? `${p.done} / ${p.total} pages` : progressLabel(p),
+                          progress: pct,
+                        });
+                      });
+                      await loadLibrary();
+                      await refreshStorageUsed();
+                    } catch (err) {
+                      console.error('deleteSeries failed', err);
+                    } finally {
+                      finish(`delete-series:${id}`);
+                    }
+                  })();
                 }}
               >
-                {seriesDeleteWorking ? 'Deleting…' : 'Delete'}
+                Delete
               </Button>
             </div>
           </div>
