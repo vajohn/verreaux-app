@@ -78,12 +78,20 @@ export function useVirtualization(pages: PageMeta[]): Virtualization {
 
   const prefetchWindow = useCallback(
     (currentIndex: number) => {
+      // Load the visible page first and let React paint it before kicking
+      // off neighbour fetches. Without the await, six concurrent blob loads
+      // + WebP decodes fight for the main thread on chapter open and the
+      // current page arrives last instead of first — making infinite scroll
+      // feel slower than pagination mode where only one page is fetched.
       const list = pagesRef.current;
-      const start = Math.max(0, currentIndex - PREFETCH_BEHIND);
-      const end = Math.min(list.length - 1, currentIndex + PREFETCH_AHEAD);
-      for (let i = start; i <= end; i++) {
-        void loadPage(i);
-      }
+      void (async () => {
+        await loadPage(currentIndex);
+        const start = Math.max(0, currentIndex - PREFETCH_BEHIND);
+        const end = Math.min(list.length - 1, currentIndex + PREFETCH_AHEAD);
+        for (let i = start; i <= end; i++) {
+          if (i !== currentIndex) void loadPage(i);
+        }
+      })();
     },
     [loadPage],
   );

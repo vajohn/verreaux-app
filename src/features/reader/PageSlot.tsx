@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { memo, useEffect, useRef } from 'react';
 import { useLongPress } from '../../lib/useLongPress';
 
 interface PageSlotProps {
@@ -10,7 +10,7 @@ interface PageSlotProps {
   onLongPress?: (index: number) => void;
 }
 
-export function PageSlot({
+function PageSlotComponent({
   index,
   url,
   inWindow,
@@ -66,3 +66,10 @@ export function PageSlot({
     </div>
   );
 }
+
+// Memoized: a chapter mounts one slot per page (up to a few hundred). Without
+// memo, every cascading forceRender during prefetch reconciles every slot,
+// even those whose props are unchanged. With shallow compare the off-window
+// slots short-circuit and only the slot that actually received a new url
+// re-renders.
+export const PageSlot = memo(PageSlotComponent);
