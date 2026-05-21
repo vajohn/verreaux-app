@@ -114,7 +114,10 @@ export async function setSortOrder(seriesId: string, sortOrder: number): Promise
 const DELETE_BATCH_SIZE = 250;
 
 export interface DeleteProgress {
-  phase: 'preparing' | 'blobs' | 'finalizing';
+  // 'pages' covers the chunked page-row cleanup that runs OUTSIDE the records
+  // tx. Without its own phase the UI sat on the last "N/N pages" emit from
+  // the blob loop while ~50+ silent bulkDeletes ran, looking frozen.
+  phase: 'preparing' | 'blobs' | 'pages' | 'finalizing';
   done: number;
   total: number;
 }
@@ -186,11 +189,18 @@ export async function deleteSeries(
   // commit budget, causing the rest of the tx (chapters/series/progress) to
   // silently abort with the "no in-progress transaction" error.
   const pageIds = pages.map((p) => p.id);
+  const totalPages = pageIds.length;
+  onProgress?.({ phase: 'pages', done: 0, total: totalPages });
   for (let i = 0; i < pageIds.length; i += DELETE_BATCH_SIZE) {
     await db.pages.bulkDelete(pageIds.slice(i, i + DELETE_BATCH_SIZE));
+    onProgress?.({
+      phase: 'pages',
+      done: Math.min(i + DELETE_BATCH_SIZE, totalPages),
+      total: totalPages,
+    });
   }
 
-  onProgress?.({ phase: 'finalizing', done: totalBlobs, total: totalBlobs });
+  onProgress?.({ phase: 'finalizing', done: totalPages, total: totalPages });
 
   // Records-only tx now: a few hundred chapters + a handful of singletons.
   // Stays well inside the IDB budget regardless of series size.
@@ -282,11 +292,18 @@ export async function deleteReadChapters(
   // Page rows deleted in chunks outside the records tx — see deleteSeries
   // comment for the IDB transaction-budget rationale.
   const pageIds = pages.map((p) => p.id);
+  const totalPages = pageIds.length;
+  onProgress?.({ phase: 'pages', done: 0, total: totalPages });
   for (let i = 0; i < pageIds.length; i += DELETE_BATCH_SIZE) {
     await db.pages.bulkDelete(pageIds.slice(i, i + DELETE_BATCH_SIZE));
+    onProgress?.({
+      phase: 'pages',
+      done: Math.min(i + DELETE_BATCH_SIZE, totalPages),
+      total: totalPages,
+    });
   }
 
-  onProgress?.({ phase: 'finalizing', done: totalBlobs, total: totalBlobs });
+  onProgress?.({ phase: 'finalizing', done: totalPages, total: totalPages });
 
   await db.transaction(
     'rw',

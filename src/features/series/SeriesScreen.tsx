@@ -49,6 +49,12 @@ function bgPatchFromProgress(p: DeleteProgress): {
   if (p.phase === 'finalizing') return { subLabel: 'Finalizing…', progress: 1 };
   if (p.phase === 'preparing') return { subLabel: 'Preparing…', progress: null };
   if (p.total === 0) return { subLabel: 'Cleaning up…', progress: null };
+  if (p.phase === 'pages') {
+    return {
+      subLabel: `Cleaning index · ${p.done} / ${p.total}`,
+      progress: p.done / p.total,
+    };
+  }
   return { subLabel: `${p.done} / ${p.total} pages`, progress: p.done / p.total };
 }
 

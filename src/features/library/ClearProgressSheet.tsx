@@ -147,9 +147,11 @@ export function ClearProgressSheet({ onClose }: ClearProgressSheetProps) {
                   ? 'finalizing…'
                   : p.phase === 'preparing'
                     ? 'preparing…'
-                    : p.total > 0
-                      ? `${p.done} / ${p.total} pages`
-                      : 'cleaning up…';
+                    : p.phase === 'pages' && p.total > 0
+                      ? `cleaning index ${p.done} / ${p.total}`
+                      : p.total > 0
+                        ? `${p.done} / ${p.total} pages`
+                        : 'cleaning up…';
               const innerPct =
                 p.phase === 'finalizing'
                   ? 1
