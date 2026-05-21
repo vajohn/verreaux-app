@@ -104,13 +104,14 @@ export async function setSortOrder(seriesId: string, sortOrder: number): Promise
   await db.series.update(seriesId, { sortOrder });
 }
 
-// Blobs are deleted in chunks (outside the final records transaction) so the
-// UI can render progress updates between batches. The remaining record
-// cleanup runs in a single fast transaction at the end. Bumped from 100 to
-// 500 — each bulkDelete is a transaction round-trip; with batch=100 a series
-// with 30k pages cost 300 round-trips even though IDB happily handles much
-// larger batches.
-const DELETE_BATCH_SIZE = 500;
+// Blobs and page rows are deleted in chunks (each chunk its own auto-wrapped
+// transaction) so no single IDB transaction has to outlive its time budget.
+// Earlier we tried batch=500 to halve round-trips, but with very large series
+// (~30k pages) the wrapping tx could auto-commit mid-batch and emit
+// "Attempt to delete range from database without an in-progress transaction"
+// for every remaining op. 250 stays comfortably under the budget on slow
+// disks while still cutting round-trips vs the original 100.
+const DELETE_BATCH_SIZE = 250;
 
 export interface DeleteProgress {
   phase: 'preparing' | 'blobs' | 'finalizing';
@@ -179,13 +180,24 @@ export async function deleteSeries(
     });
   }
 
+  // Page rows are deleted in chunks OUTSIDE the final records transaction.
+  // Doing `db.pages.where('chapterId').anyOf(chapterIds).delete()` for tens of
+  // thousands of pages inside a single IDB transaction can overrun the auto-
+  // commit budget, causing the rest of the tx (chapters/series/progress) to
+  // silently abort with the "no in-progress transaction" error.
+  const pageIds = pages.map((p) => p.id);
+  for (let i = 0; i < pageIds.length; i += DELETE_BATCH_SIZE) {
+    await db.pages.bulkDelete(pageIds.slice(i, i + DELETE_BATCH_SIZE));
+  }
+
   onProgress?.({ phase: 'finalizing', done: totalBlobs, total: totalBlobs });
 
+  // Records-only tx now: a few hundred chapters + a handful of singletons.
+  // Stays well inside the IDB budget regardless of series size.
   await db.transaction(
     'rw',
-    [db.series, db.chapters, db.pages, db.readingProgress, db.bookmarks],
+    [db.series, db.chapters, db.readingProgress, db.bookmarks],
     async () => {
-      await db.pages.where('chapterId').anyOf(chapterIds).delete();
       await db.chapters.where('seriesId').equals(seriesId).delete();
       await db.series.delete(seriesId);
       await db.readingProgress.where('seriesId').equals(seriesId).delete();
@@ -267,13 +279,19 @@ export async function deleteReadChapters(
     });
   }
 
+  // Page rows deleted in chunks outside the records tx — see deleteSeries
+  // comment for the IDB transaction-budget rationale.
+  const pageIds = pages.map((p) => p.id);
+  for (let i = 0; i < pageIds.length; i += DELETE_BATCH_SIZE) {
+    await db.pages.bulkDelete(pageIds.slice(i, i + DELETE_BATCH_SIZE));
+  }
+
   onProgress?.({ phase: 'finalizing', done: totalBlobs, total: totalBlobs });
 
   await db.transaction(
     'rw',
-    [db.series, db.chapters, db.pages, db.readingProgress, db.bookmarks],
+    [db.series, db.chapters, db.bookmarks, db.readingProgress],
     async () => {
-      await db.pages.where('chapterId').anyOf(chapterIds).delete();
       await db.bookmarks.where('chapterId').anyOf(chapterIds).delete();
       await db.chapters.where('id').anyOf(chapterIds).delete();
 

@@ -24,7 +24,12 @@ export const useSeriesStore = create<SeriesStore>((set) => ({
   scrollPosition: 0,
 
   async loadSeries(seriesId) {
-    set({ isLoading: true });
+    // Clear stale state BEFORE the await. Otherwise SeriesScreen will render
+    // the previous series' data under the new seriesId until the read
+    // resolves — which can take many seconds while IDB is busy with a
+    // background delete, making it look like every tap "redirects" to the
+    // series currently being deleted.
+    set({ currentSeries: null, chapters: [], isLoading: true });
     const series = (await getSeriesById(seriesId)) ?? null;
     const chapters = series ? await getChaptersBySeriesId(seriesId) : [];
     set({ currentSeries: series, chapters, isLoading: false });
