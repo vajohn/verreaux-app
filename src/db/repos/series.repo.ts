@@ -232,9 +232,12 @@ export async function previewReadChaptersToDelete(
   if (!progress) return { chaptersDeleted: 0, bytesFreed: 0 };
   const current = await db.chapters.get(progress.currentChapterId);
   if (!current) return { chaptersDeleted: 0, bytesFreed: 0 };
+  // Exclusive upper bound: the chapter the user is currently reading is NOT
+  // a "read" chapter — they're still in it. Deleting it would discard their
+  // in-progress position and pages.
   const readChapters = await db.chapters
     .where('[seriesId+order]')
-    .between([seriesId, -Infinity], [seriesId, current.order], true, true)
+    .between([seriesId, -Infinity], [seriesId, current.order], true, false)
     .toArray();
   const chapterIds = readChapters.map((c) => c.id);
   if (chapterIds.length === 0) return { chaptersDeleted: 0, bytesFreed: 0 };
@@ -263,9 +266,11 @@ export async function deleteReadChapters(
   const current = await db.chapters.get(progress.currentChapterId);
   if (!current) return { chaptersDeleted: 0, bytesFreed: 0 };
 
+  // Exclusive upper bound — see previewReadChaptersToDelete. The currently
+  // open chapter stays put with its pages and the user's progress within it.
   const readChapters = await db.chapters
     .where('[seriesId+order]')
-    .between([seriesId, -Infinity], [seriesId, current.order], true, true)
+    .between([seriesId, -Infinity], [seriesId, current.order], true, false)
     .toArray();
   const chapterIds = readChapters.map((c) => c.id);
   if (chapterIds.length === 0) return { chaptersDeleted: 0, bytesFreed: 0 };
@@ -312,15 +317,16 @@ export async function deleteReadChapters(
       await db.bookmarks.where('chapterId').anyOf(chapterIds).delete();
       await db.chapters.where('id').anyOf(chapterIds).delete();
 
-      await db.readingProgress
-        .where('[profileId+seriesId]')
-        .equals([profileId, seriesId])
-        .delete();
+      // Reading progress is PRESERVED. The current chapter still exists, so
+      // the user's position within it (currentChapterId + pageIndex) remains
+      // valid — they can resume where they left off after the read backlog
+      // is cleared. Previously we wiped progress because current was deleted
+      // along with the rest; that's no longer true.
 
       // Snapshot the highest chapter.order so the cleared-state UI can show
-      // "202 / 204" when chapterCount eventually hits 0. Deleted (read)
-      // chapters max out at current.order; unread chapters above are still
-      // in the table after the delete, so take the max of the two.
+      // "202 / 204" when chapterCount eventually hits 0. The current chapter
+      // is still in the table (order = current.order); take max with any
+      // unread chapter strictly above it.
       const lastUnread = await db.chapters
         .where('[seriesId+order]')
         .between([seriesId, current.order], [seriesId, Infinity], false, true)
@@ -330,14 +336,10 @@ export async function deleteReadChapters(
       const newCount = await db.chapters.where('seriesId').equals(seriesId).count();
       await db.series.update(seriesId, {
         chapterCount: newCount,
-        lastReadChapterId: null,
-        lastReadAt: null,
-        // Preserve the order of the last-read chapter so that on reimport
-        // we can resume at the same chapter. The chapter row itself is being
-        // deleted, but its `order` is a stable per-series key.
+        // lastReadChapterId / lastReadAt preserved: the chapter still exists.
+        // lastReadChapterOrder still pins the resume point in case the series
+        // is later wiped and reimported.
         lastReadChapterOrder: current.order,
-        // Snapshot of max chapter.order at clear-time so the UI can show
-        // a meaningful "lastRead / lastKnown" pair after everything is wiped.
         lastKnownMaxOrder: maxOrder,
       });
     },

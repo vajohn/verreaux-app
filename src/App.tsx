@@ -42,7 +42,7 @@ export function App() {
   return (
     <>
       {screen}
-      <BackgroundTaskBar />
+      <BackgroundTaskBar placement={route.screen === 'reader' ? 'bottom' : 'top'} />
       <UpdatePrompt />
     </>
   );

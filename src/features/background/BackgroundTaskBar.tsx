@@ -2,7 +2,14 @@ import { useBackgroundStore } from './background.store';
 import { ProgressBar } from '../../ui/ProgressBar';
 import './BackgroundTaskBar.css';
 
-export function BackgroundTaskBar() {
+interface BackgroundTaskBarProps {
+  // 'bottom' is used in the reader so the bar doesn't cover the reader's
+  // top overlay (chapter title / chip). Defaults to 'top' for library and
+  // series screens which have no fixed top chrome.
+  placement?: 'top' | 'bottom';
+}
+
+export function BackgroundTaskBar({ placement = 'top' }: BackgroundTaskBarProps) {
   const task = useBackgroundStore((s) => s.current);
   if (!task) return null;
 
@@ -10,7 +17,11 @@ export function BackgroundTaskBar() {
   const indeterminate = task.progress == null;
 
   return (
-    <div className="bg-task-bar" role="status" aria-live="polite">
+    <div
+      className={`bg-task-bar bg-task-bar--${placement}`}
+      role="status"
+      aria-live="polite"
+    >
       <div className="bg-task-bar__inner">
         <div className="bg-task-bar__text">
           <span className="bg-task-bar__label type-nav-label">{task.label}</span>

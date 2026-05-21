@@ -54,9 +54,12 @@ export function ClearProgressSheet({ onClose }: ClearProgressSheetProps) {
         if (!series) continue;
         const cur = await db.chapters.get(rec.currentChapterId);
         if (!cur) continue;
+        // Exclusive upper bound: the chapter currently being read is not a
+        // "read" chapter — keep it (and its pages + progress) so the user can
+        // resume where they left off. Matches deleteReadChapters semantics.
         const readList = await db.chapters
           .where('[seriesId+order]')
-          .between([cur.seriesId, -Infinity], [cur.seriesId, cur.order], true, true)
+          .between([cur.seriesId, -Infinity], [cur.seriesId, cur.order], true, false)
           .toArray();
         if (readList.length === 0) continue;
         const readIds = readList.map((c) => c.id);
