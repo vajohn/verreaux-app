@@ -395,71 +395,84 @@ export async function mergeSeries(
   sourceSeriesId: string,
   conflictResolutions: Map<number, 'target' | 'source'>,
 ): Promise<void> {
+  // Phase 1 (outside any tx): plan winners and losers.
+  // resolution='target' → keep target chapter, delete source chapter.
+  // resolution='source' → reparent source chapter into target, delete target chapter.
+  const sourceChapters = await db.chapters
+    .where('seriesId')
+    .equals(sourceSeriesId)
+    .toArray();
+  const targetChapters = await db.chapters
+    .where('seriesId')
+    .equals(targetSeriesId)
+    .toArray();
+  const targetOrderMap = new Map(targetChapters.map((c) => [c.order, c]));
+
+  const loserChapterIds: string[] = [];
+  const reparentToTarget: string[] = [];
+
+  for (const sc of sourceChapters) {
+    const tc = targetOrderMap.get(sc.order);
+    if (tc) {
+      const resolution = conflictResolutions.get(sc.order) ?? 'target';
+      if (resolution === 'target') {
+        loserChapterIds.push(sc.id);
+      } else {
+        loserChapterIds.push(tc.id);
+        reparentToTarget.push(sc.id);
+      }
+    } else {
+      reparentToTarget.push(sc.id);
+    }
+  }
+
+  const loserPages = loserChapterIds.length
+    ? await db.pages.where('chapterId').anyOf(loserChapterIds).toArray()
+    : [];
+  const loserBlobIds = loserPages.map((p) => p.blobId);
+  const loserPageIds = loserPages.map((p) => p.id);
+
+  const sourceSeries = await db.series.get(sourceSeriesId);
+  const coverBlobIds: string[] = [];
+  if (sourceSeries?.coverImageId) coverBlobIds.push(sourceSeries.coverImageId);
+  if (sourceSeries?.coverBlobId) coverBlobIds.push(sourceSeries.coverBlobId);
+
+  // Phase 2 (outside tx): chunk-delete blobs and page rows so the final
+  // records tx is bounded by chapter count, not page count. Same IDB
+  // transaction-budget rationale as deleteSeries / deleteReadChapters.
+  const allBlobIds = [...loserBlobIds, ...coverBlobIds];
+  for (let i = 0; i < allBlobIds.length; i += DELETE_BATCH_SIZE) {
+    await db.blobs.bulkDelete(allBlobIds.slice(i, i + DELETE_BATCH_SIZE));
+  }
+  for (let i = 0; i < loserPageIds.length; i += DELETE_BATCH_SIZE) {
+    await db.pages.bulkDelete(loserPageIds.slice(i, i + DELETE_BATCH_SIZE));
+  }
+
+  // Phase 3 (records-only tx): chapter moves/deletes, progress + bookmark
+  // remaps, source series removal.
   await db.transaction(
     'rw',
-    [db.series, db.chapters, db.pages, db.blobs, db.readingProgress, db.bookmarks],
+    [db.series, db.chapters, db.readingProgress, db.bookmarks],
     async () => {
-      const sourceChapters = await db.chapters
-        .where('seriesId')
-        .equals(sourceSeriesId)
-        .toArray();
-      const targetChapters = await db.chapters
-        .where('seriesId')
-        .equals(targetSeriesId)
-        .toArray();
-      const targetOrderMap = new Map(targetChapters.map((c) => [c.order, c]));
-
-      for (const sc of sourceChapters) {
-        const tc = targetOrderMap.get(sc.order);
-        if (tc) {
-          // Conflict: honour resolution.
-          // resolution='target' means keep target chapter (tc), delete source chapter (sc).
-          // resolution='source' means keep source chapter (sc), delete target chapter (tc).
-          const resolution = conflictResolutions.get(sc.order) ?? 'target';
-          const loser = resolution === 'target' ? sc : tc;
-          const winner = resolution === 'target' ? tc : sc;
-          // Delete loser's pages + blobs
-          const loserPages = await db.pages.where('chapterId').equals(loser.id).toArray();
-          await db.blobs.bulkDelete(loserPages.map((p) => p.blobId));
-          await db.pages.where('chapterId').equals(loser.id).delete();
-          await db.chapters.delete(loser.id);
-          // If winner is from source, reparent it to target series
-          if (resolution === 'source') {
-            await db.chapters.update(winner.id, { seriesId: targetSeriesId });
-          }
-        } else {
-          // No conflict: adopt source chapter into target series
-          await db.chapters.update(sc.id, { seriesId: targetSeriesId });
-        }
+      if (loserChapterIds.length > 0) {
+        await db.chapters.where('id').anyOf(loserChapterIds).delete();
+      }
+      for (const id of reparentToTarget) {
+        await db.chapters.update(id, { seriesId: targetSeriesId });
       }
 
-      // Remap readingProgress that pointed at source series to target
-      const srcProgress = await db.readingProgress
+      await db.readingProgress
         .where('seriesId')
         .equals(sourceSeriesId)
-        .toArray();
-      for (const rp of srcProgress) {
-        await db.readingProgress.update(rp.id, { seriesId: targetSeriesId });
-      }
+        .modify({ seriesId: targetSeriesId });
 
-      // Remap bookmarks
       await db.bookmarks
         .where('seriesId')
         .equals(sourceSeriesId)
         .modify({ seriesId: targetSeriesId });
 
-      // Update chapterCount on target series
       const newCount = await db.chapters.where('seriesId').equals(targetSeriesId).count();
       await db.series.update(targetSeriesId, { chapterCount: newCount });
-
-      // Delete source series record
-      const sourceSeries = await db.series.get(sourceSeriesId);
-      if (sourceSeries) {
-        const coverIds: string[] = [];
-        if (sourceSeries.coverImageId) coverIds.push(sourceSeries.coverImageId);
-        if (sourceSeries.coverBlobId) coverIds.push(sourceSeries.coverBlobId);
-        if (coverIds.length > 0) await db.blobs.bulkDelete(coverIds);
-      }
       await db.series.delete(sourceSeriesId);
     },
   );
