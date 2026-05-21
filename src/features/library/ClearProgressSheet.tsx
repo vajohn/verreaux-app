@@ -139,29 +139,39 @@ export function ClearProgressSheet({ onClose }: ClearProgressSheetProps) {
           update({ subLabel: baseSub, progress: i / total });
           if (isDestructiveLocal) {
             await deleteReadChapters(profileId, id, (p) => {
-              const inner =
-                p.total > 0
-                  ? p.done / p.total
-                  : p.phase === 'finalizing'
-                    ? 1
+              // Phase-first: 'finalizing' must beat the "N/N pages" template
+              // (finalizing reports total=done so total>0), otherwise the bar
+              // sits on "N/N pages" while the silent IDB transaction runs.
+              const innerLabel =
+                p.phase === 'finalizing'
+                  ? 'finalizing…'
+                  : p.phase === 'preparing'
+                    ? 'preparing…'
+                    : p.total > 0
+                      ? `${p.done} / ${p.total} pages`
+                      : 'cleaning up…';
+              const innerPct =
+                p.phase === 'finalizing'
+                  ? 1
+                  : p.total > 0
+                    ? p.done / p.total
                     : 0;
               update({
-                subLabel:
-                  p.total > 0 ? `${baseSub} — ${p.done} / ${p.total} pages` : baseSub,
-                progress: i / total + inner / total,
+                subLabel: `${baseSub} — ${innerLabel}`,
+                progress: i / total + innerPct / total,
               });
             });
           } else {
             await clearSeriesProgress(profileId, id);
           }
         }
-        await loadLibrary();
-        await refreshStorageUsed();
       } catch (err) {
         console.error('bulk clear/delete failed', err);
       } finally {
         finish(taskId);
       }
+      void loadLibrary();
+      void refreshStorageUsed();
     })();
   }
 

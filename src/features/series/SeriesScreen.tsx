@@ -37,11 +37,19 @@ interface SeriesScreenProps {
 
 type OverflowTarget = { kind: 'series' } | { kind: 'chapter'; chapter: Chapter };
 
-function progressLabel(p: DeleteProgress): string {
-  if (p.phase === 'preparing') return 'Preparing…';
-  if (p.phase === 'finalizing') return 'Finalizing…';
-  if (p.total === 0) return 'Cleaning up…';
-  return `Deleting ${p.done} / ${p.total} pages…`;
+// Phase-first patch builder for the background bar. The previous version used
+// `p.total > 0 ? "N/N pages" : progressLabel(p)`, but the deleteSeries flow
+// emits {phase:'finalizing', done:total, total:total} — so the bar showed
+// "N/N pages" at 100% during the silent IDB transaction instead of
+// "Finalizing…", and looked stuck until the function eventually returned.
+function bgPatchFromProgress(p: DeleteProgress): {
+  subLabel: string;
+  progress: number | null;
+} {
+  if (p.phase === 'finalizing') return { subLabel: 'Finalizing…', progress: 1 };
+  if (p.phase === 'preparing') return { subLabel: 'Preparing…', progress: null };
+  if (p.total === 0) return { subLabel: 'Cleaning up…', progress: null };
+  return { subLabel: `${p.done} / ${p.total} pages`, progress: p.done / p.total };
 }
 
 export function SeriesScreen({ seriesId }: SeriesScreenProps) {
@@ -778,26 +786,19 @@ export function SeriesScreen({ seriesId }: SeriesScreenProps) {
                     const { update, finish } = useBackgroundStore.getState();
                     try {
                       await deleteReadChapters(profileId, seriesId, (p) => {
-                        const pct =
-                          p.total > 0
-                            ? p.done / p.total
-                            : p.phase === 'finalizing'
-                              ? 1
-                              : null;
-                        update({
-                          subLabel:
-                            p.total > 0 ? `${p.done} / ${p.total} pages` : progressLabel(p),
-                          progress: pct,
-                        });
+                        update(bgPatchFromProgress(p));
                       });
-                      await loadSeries(seriesId);
-                      await loadLibrary();
-                      await refreshStorageUsed();
                     } catch (err) {
                       console.error('deleteReadChapters failed', err);
                     } finally {
+                      // Close the bar as soon as the destructive op returns —
+                      // library/storage refreshes are best-effort and were
+                      // making the bar linger at 100% for seconds.
                       finish(`delete-read:${seriesId}`);
                     }
+                    void loadSeries(seriesId);
+                    void loadLibrary();
+                    void refreshStorageUsed();
                   })();
                 }}
               >
@@ -842,13 +843,13 @@ export function SeriesScreen({ seriesId }: SeriesScreenProps) {
                     const { finish } = useBackgroundStore.getState();
                     try {
                       await clearSeriesProgress(profileId, seriesId);
-                      await loadSeries(seriesId);
-                      await loadLibrary();
                     } catch (err) {
                       console.error('clearSeriesProgress failed', err);
                     } finally {
                       finish(`clear-progress:${seriesId}`);
                     }
+                    void loadSeries(seriesId);
+                    void loadLibrary();
                   })();
                 }}
               >
@@ -912,25 +913,15 @@ export function SeriesScreen({ seriesId }: SeriesScreenProps) {
                     const { update, finish } = useBackgroundStore.getState();
                     try {
                       await deleteSeries(id, (p) => {
-                        const pct =
-                          p.total > 0
-                            ? p.done / p.total
-                            : p.phase === 'finalizing'
-                              ? 1
-                              : null;
-                        update({
-                          subLabel:
-                            p.total > 0 ? `${p.done} / ${p.total} pages` : progressLabel(p),
-                          progress: pct,
-                        });
+                        update(bgPatchFromProgress(p));
                       });
-                      await loadLibrary();
-                      await refreshStorageUsed();
                     } catch (err) {
                       console.error('deleteSeries failed', err);
                     } finally {
                       finish(`delete-series:${id}`);
                     }
+                    void loadLibrary();
+                    void refreshStorageUsed();
                   })();
                 }}
               >

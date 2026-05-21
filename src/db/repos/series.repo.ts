@@ -106,8 +106,11 @@ export async function setSortOrder(seriesId: string, sortOrder: number): Promise
 
 // Blobs are deleted in chunks (outside the final records transaction) so the
 // UI can render progress updates between batches. The remaining record
-// cleanup runs in a single fast transaction at the end.
-const DELETE_BATCH_SIZE = 100;
+// cleanup runs in a single fast transaction at the end. Bumped from 100 to
+// 500 — each bulkDelete is a transaction round-trip; with batch=100 a series
+// with 30k pages cost 300 round-trips even though IDB happily handles much
+// larger batches.
+const DELETE_BATCH_SIZE = 500;
 
 export interface DeleteProgress {
   phase: 'preparing' | 'blobs' | 'finalizing';
@@ -248,12 +251,9 @@ export async function deleteReadChapters(
   const pages = await db.pages.where('chapterId').anyOf(chapterIds).toArray();
   const blobIds = pages.map((p) => p.blobId);
 
-  let bytesFreed = 0;
-  for (const id of blobIds) {
-    const b = await db.blobs.get(id);
-    if (b) bytesFreed += b.blob.size;
-  }
-
+  // bytesFreed is computed up-front by `previewReadChaptersToDelete` for the
+  // confirm sheet — don't repeat the full-blob scan here. Doubled the wall
+  // time of large deletes for no UI benefit. Return value is best-effort.
   const totalBlobs = blobIds.length;
   onProgress?.({ phase: 'blobs', done: 0, total: totalBlobs });
 
@@ -308,7 +308,7 @@ export async function deleteReadChapters(
     },
   );
 
-  return { chaptersDeleted: chapterIds.length, bytesFreed };
+  return { chaptersDeleted: chapterIds.length, bytesFreed: 0 };
 }
 
 /**
