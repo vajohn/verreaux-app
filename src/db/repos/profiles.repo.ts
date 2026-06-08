@@ -1,6 +1,7 @@
 import { db } from '../db';
 import type { Profile, AvatarColor } from '../types';
 import { uuid } from '../../lib/uuid';
+import { yieldToReads } from '../idbYield';
 
 export async function createProfile(
   name: string,
@@ -70,9 +71,11 @@ export async function deleteProfile(id: string): Promise<void> {
   const allBlobIds = [...pageBlobIds, ...coverBlobIds];
   for (let i = 0; i < allBlobIds.length; i += DELETE_BATCH_SIZE) {
     await db.blobs.bulkDelete(allBlobIds.slice(i, i + DELETE_BATCH_SIZE));
+    await yieldToReads();
   }
   for (let i = 0; i < pageIds.length; i += DELETE_BATCH_SIZE) {
     await db.pages.bulkDelete(pageIds.slice(i, i + DELETE_BATCH_SIZE));
+    await yieldToReads();
   }
 
   // Phase 3 (records-only tx): chapters, series, progress, bookmarks, profile.

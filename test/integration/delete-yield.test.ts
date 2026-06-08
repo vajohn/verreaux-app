@@ -16,6 +16,7 @@ import {
 } from '../../src/db/repos/series.repo';
 import { createChapter } from '../../src/db/repos/chapters.repo';
 import { uuid } from '../../src/lib/uuid';
+import { deleteProfile } from '../../src/db/repos/profiles.repo';
 
 const PROFILE = 'p-test';
 const yieldSpy = vi.mocked(yieldToReads);
@@ -178,5 +179,18 @@ describe('mergeSeries yields between batches', () => {
 
     expect(yieldSpy).toHaveBeenCalledTimes(BATCHES_PER_PHASE * 2);
     expect(await db.series.get(source.id)).toBeUndefined();
+  });
+});
+
+describe('deleteProfile yields between batches', () => {
+  it('awaits yieldToReads once per blob batch and once per page batch', async () => {
+    // The PROFILE seeded in beforeEach owns one series with 300 pages.
+    const { series } = await seedSeriesWithPages(PAGES);
+    expect(series).toBeDefined();
+
+    await deleteProfile(PROFILE);
+
+    expect(yieldSpy).toHaveBeenCalledTimes(BATCHES_PER_PHASE * 2);
+    expect(await db.profiles.get(PROFILE)).toBeUndefined();
   });
 });
