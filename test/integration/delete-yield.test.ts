@@ -131,3 +131,52 @@ describe('deleteReadChapters yields between batches', () => {
     expect(await db.chapters.get(currentCh.id)).toBeDefined();
   });
 });
+
+describe('mergeSeries yields between batches', () => {
+  it('awaits yieldToReads once per loser-blob batch and once per loser-page batch', async () => {
+    // Source has a chapter at order 1 with 300 pages; target has a chapter at
+    // the SAME order 1. Resolution 'target' makes the SOURCE chapter the loser,
+    // so its 300 pages + blobs are chunk-deleted.
+    const target = await createSeries({
+      profileId: PROFILE,
+      title: 'Target',
+      coverImageId: null,
+      chapterCount: 1,
+    });
+    await createChapter({
+      seriesId: target.id,
+      profileId: PROFILE,
+      title: 'T Ch1',
+      order: 1,
+      pageCount: 1,
+    });
+    const source = await createSeries({
+      profileId: PROFILE,
+      title: 'Source',
+      coverImageId: null,
+      chapterCount: 1,
+    });
+    const sourceCh = await createChapter({
+      seriesId: source.id,
+      profileId: PROFILE,
+      title: 'S Ch1',
+      order: 1,
+      pageCount: PAGES,
+    });
+    const blobs = [];
+    const pages = [];
+    for (let i = 0; i < PAGES; i++) {
+      const blobId = `mb-${i}`;
+      blobs.push({ id: blobId, blob: new Blob(['x']) });
+      pages.push({ id: `mp-${i}`, chapterId: sourceCh.id, pageNumber: i, blobId });
+    }
+    await db.blobs.bulkAdd(blobs);
+    await db.pages.bulkAdd(pages);
+
+    // resolution 'target' => source chapter (order 1) is the loser.
+    await mergeSeries(target.id, source.id, new Map([[1, 'target']]));
+
+    expect(yieldSpy).toHaveBeenCalledTimes(BATCHES_PER_PHASE * 2);
+    expect(await db.series.get(source.id)).toBeUndefined();
+  });
+});

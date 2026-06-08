@@ -467,9 +467,11 @@ export async function mergeSeries(
   const allBlobIds = [...loserBlobIds, ...coverBlobIds];
   for (let i = 0; i < allBlobIds.length; i += DELETE_BATCH_SIZE) {
     await db.blobs.bulkDelete(allBlobIds.slice(i, i + DELETE_BATCH_SIZE));
+    await yieldToReads();
   }
   for (let i = 0; i < loserPageIds.length; i += DELETE_BATCH_SIZE) {
     await db.pages.bulkDelete(loserPageIds.slice(i, i + DELETE_BATCH_SIZE));
+    await yieldToReads();
   }
 
   // Phase 3 (records-only tx): chapter moves/deletes, progress + bookmark
