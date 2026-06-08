@@ -1,6 +1,7 @@
 import { db } from '../db';
 import type { Series, CoverSource } from '../types';
 import { uuid } from '../../lib/uuid';
+import { yieldToReads } from '../idbYield';
 
 export function normalizeTitle(title: string): string {
   return title.trim().toLowerCase();
@@ -181,6 +182,7 @@ export async function deleteSeries(
       done: Math.min(i + DELETE_BATCH_SIZE, totalBlobs),
       total: totalBlobs,
     });
+    await yieldToReads();
   }
 
   // Page rows are deleted in chunks OUTSIDE the final records transaction.
@@ -198,6 +200,7 @@ export async function deleteSeries(
       done: Math.min(i + DELETE_BATCH_SIZE, totalPages),
       total: totalPages,
     });
+    await yieldToReads();
   }
 
   onProgress?.({ phase: 'finalizing', done: totalPages, total: totalPages });
