@@ -295,6 +295,7 @@ export async function deleteReadChapters(
       done: Math.min(i + DELETE_BATCH_SIZE, totalBlobs),
       total: totalBlobs,
     });
+    await yieldToReads();
   }
 
   // Page rows deleted in chunks outside the records tx — see deleteSeries
@@ -309,6 +310,7 @@ export async function deleteReadChapters(
       done: Math.min(i + DELETE_BATCH_SIZE, totalPages),
       total: totalPages,
     });
+    await yieldToReads();
   }
 
   onProgress?.({ phase: 'finalizing', done: totalPages, total: totalPages });

@@ -8,8 +8,14 @@ vi.mock('../../src/db/idbYield', () => ({
 
 import { db } from '../../src/db/db';
 import { yieldToReads } from '../../src/db/idbYield';
-import { createSeries, deleteSeries } from '../../src/db/repos/series.repo';
+import {
+  createSeries,
+  deleteSeries,
+  deleteReadChapters,
+  mergeSeries,
+} from '../../src/db/repos/series.repo';
 import { createChapter } from '../../src/db/repos/chapters.repo';
+import { uuid } from '../../src/lib/uuid';
 
 const PROFILE = 'p-test';
 const yieldSpy = vi.mocked(yieldToReads);
@@ -70,5 +76,58 @@ describe('deleteSeries yields between batches', () => {
     expect(await db.series.get(series.id)).toBeUndefined();
     expect(await db.pages.count()).toBe(0);
     expect(await db.blobs.count()).toBe(0);
+  });
+});
+
+describe('deleteReadChapters yields between batches', () => {
+  it('awaits yieldToReads once per blob batch and once per page batch', async () => {
+    // Read chapter (order 1, 300 pages) + current chapter (order 2, 1 page).
+    // deleteReadChapters removes chapters strictly below the current one.
+    const series = await createSeries({
+      profileId: PROFILE,
+      title: 'Read Backlog',
+      coverImageId: null,
+      chapterCount: 2,
+    });
+    const readCh = await createChapter({
+      seriesId: series.id,
+      profileId: PROFILE,
+      title: 'Chapter 1',
+      order: 1,
+      pageCount: PAGES,
+    });
+    const currentCh = await createChapter({
+      seriesId: series.id,
+      profileId: PROFILE,
+      title: 'Chapter 2',
+      order: 2,
+      pageCount: 1,
+    });
+    const blobs = [];
+    const pages = [];
+    for (let i = 0; i < PAGES; i++) {
+      const blobId = `rb-${i}`;
+      blobs.push({ id: blobId, blob: new Blob(['x']) });
+      pages.push({ id: `rp-${i}`, chapterId: readCh.id, pageNumber: i, blobId });
+    }
+    await db.blobs.bulkAdd(blobs);
+    await db.pages.bulkAdd(pages);
+    await db.readingProgress.add({
+      id: uuid(),
+      profileId: PROFILE,
+      seriesId: series.id,
+      currentChapterId: currentCh.id,
+      pageIndex: 0,
+      scrollPosition: 0,
+      updatedAt: Date.now(),
+      manuallyMarked: false,
+    });
+
+    await deleteReadChapters(PROFILE, series.id);
+
+    expect(yieldSpy).toHaveBeenCalledTimes(BATCHES_PER_PHASE * 2);
+    // Read chapter gone, current chapter preserved.
+    expect(await db.chapters.get(readCh.id)).toBeUndefined();
+    expect(await db.chapters.get(currentCh.id)).toBeDefined();
   });
 });
