@@ -91,14 +91,26 @@ scheduler can run queued reader transactions.
 
 ### Testing
 
-A Vitest regression test (using the existing `fake-indexeddb` setup) that:
+A wall-clock latency assertion was calibrated and rejected as flaky: the stall
+is phase-dependent (a single read issued during the blobs-delete phase finishes
+before the pages-delete phase even starts) and the scheduler produces outliers
+(a "fixed" run still showed an occasional 600ms+ read). Instead the suite uses
+two deterministic tests, with the behavioral proof living in the committed
+repros and the evidence table above:
 
-1. Seeds a large series + a small series.
-2. Kicks off `deleteSeries(largeId)` without awaiting it (background).
-3. Asserts a concurrent `getPagesByChapterId(smallSeriesChapterId)` resolves
-   quickly (e.g. under 200ms) rather than being delayed for the whole delete.
+1. **Mechanism** (`test/unit/idbYield.test.ts`): `yieldToReads()` resolves on a
+   real macrotask — an already-queued `setTimeout(0)` callback runs before it,
+   which a microtask-based yield would not allow. This pins the one property
+   that makes the fix work.
+2. **Wiring** (`test/integration/delete-yield.test.ts`): with `yieldToReads`
+   mocked to a spy, each of `deleteSeries`, `deleteReadChapters`, `mergeSeries`,
+   and `deleteProfile` calls it exactly once per blob batch and once per page
+   batch over a seeded multi-batch series. Each case fails on current code
+   (0 calls) and passes after the fix.
 
-The test fails on current code and passes after the fix.
+Both run fast and are non-flaky. Real-browser confirmation is a documented
+optional manual step (import large series → delete → open another while the
+delete runs).
 
 ## Out of scope (YAGNI)
 
