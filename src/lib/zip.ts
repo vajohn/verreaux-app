@@ -98,6 +98,7 @@ class ZipReaderImpl implements ZipReader {
     if (this.closed) throw new Error('ZipReader closed');
     const entry = this.entriesByPath.get(path);
     if (!entry) throw new Error(`Entry not found: ${path}`);
+    if (entry.directory) throw new Error(`Entry is a directory: ${path}`);
     const fileEntry = entry as Entry & {
       getData: (writer: TextWriter) => Promise<string>;
     };
