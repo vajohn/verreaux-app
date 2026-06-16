@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useLibraryStore } from './library.store';
 import { getAllProfiles, createProfile, renameProfile, deleteProfile } from '../../db/repos/profiles.repo';
 import { exportLibrary } from './exportLibrary';
+import { getApiBase, setApiBase } from '../sync/piClient';
 import { useEscape } from '../../lib/useEscape';
 import { ClearProgressSheet } from './ClearProgressSheet';
 import { OptimizeStorageSheet } from './OptimizeStorageSheet';
@@ -58,6 +59,7 @@ export function SettingsPanel() {
     try { return localStorage.getItem('verreaux:compress-on-import') === '1'; } catch { return false; }
   });
   const [exportStatus, setExportStatus] = useState<'idle' | 'exporting' | 'done'>('idle');
+  const [piApiBase, setPiApiBase] = useState<string>(() => getApiBase());
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [profilesOpen, setProfilesOpen] = useState(false);
   const [newProfileName, setNewProfileName] = useState('');
@@ -203,6 +205,32 @@ export function SettingsPanel() {
         >
           {compressOnImport ? 'ON' : 'OFF'}
         </button>
+      </div>
+
+      {/* Sync */}
+      <div className="type-section-label settings-section">Sync</div>
+      <div className="settings-row">
+        <div style={{ flex: 1 }}>
+          <span className="type-body">Pi scraper API URL</span>
+          <div className="type-nav-label" style={{ color: 'var(--color-text-muted)', marginTop: 2 }}>
+            e.g. http://pajohn.local:8080 or your Tailscale Funnel URL
+          </div>
+          <input
+            className="series-title-input type-body"
+            type="url"
+            inputMode="url"
+            placeholder="http://pajohn.local:8080"
+            value={piApiBase}
+            onChange={(e) => setPiApiBase(e.target.value)}
+            onBlur={() => {
+              const trimmed = piApiBase.trim();
+              setApiBase(trimmed);
+              // Reflect the normalized (trailing-slash-stripped) value back.
+              setPiApiBase(getApiBase());
+            }}
+            style={{ marginTop: 8, width: '100%' }}
+          />
+        </div>
       </div>
 
       {/* Export */}
