@@ -1,12 +1,19 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { setApiBase, getApiBase, postScrape, getRunStatus, getRunZip } from '../../src/features/sync/piClient';
 
-afterEach(() => { vi.unstubAllGlobals(); localStorage.clear(); });
+// clear() before unstubbing: vi.unstubAllGlobals() can restore Node 25's
+// non-functional localStorage stub, so clear the jsdom Storage first.
+afterEach(() => { localStorage.clear(); vi.unstubAllGlobals(); });
 
 describe('piClient', () => {
   it('persists and reads the API base', () => {
     setApiBase('http://pajohn.local:8080');
     expect(getApiBase()).toBe('http://pajohn.local:8080');
+  });
+
+  it('throws a configuration error when the base URL is unset', async () => {
+    localStorage.clear();
+    await expect(postScrape({ url: 'https://x.test/s', args: '', otp: '1' })).rejects.toThrow(/not configured/i);
   });
 
   it('POSTs /scrape with url, args, otp and returns the id', async () => {
