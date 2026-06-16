@@ -139,7 +139,7 @@ export function LibraryScreen() {
             <div style={{ height: 24 }} />
             <ImportZone context="home" />
             <div style={{ display: 'flex', justifyContent: 'center', marginTop: 12 }}>
-              <Button variant="ghost" onClick={() => { setAddUrlError(''); setAddUrlSheet(true); }}>
+              <Button variant="ghost" onClick={() => { setAddUrlError(''); setAddOtpInput(''); setAddUrlSheet(true); }}>
                 Add from URL
               </Button>
             </div>
@@ -169,7 +169,7 @@ export function LibraryScreen() {
             </div>
             <ImportZone context="home" />
             <div style={{ display: 'flex', justifyContent: 'center', marginTop: 12 }}>
-              <Button variant="ghost" onClick={() => { setAddUrlError(''); setAddUrlSheet(true); }}>
+              <Button variant="ghost" onClick={() => { setAddUrlError(''); setAddOtpInput(''); setAddUrlSheet(true); }}>
                 Add from URL
               </Button>
             </div>
