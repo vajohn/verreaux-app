@@ -18,6 +18,7 @@ describe('updateFromSource', () => {
     const arg = startImport.mock.calls[0][0];
     expect(arg.context).toBe('series');
     expect(arg.targetSeriesId).toBe('s1');
+    expect(arg.activeProfileId).toBe('p1');
   });
 
   it('refuses to run when the series has no sourceUrl', async () => {
