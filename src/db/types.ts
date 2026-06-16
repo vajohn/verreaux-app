@@ -40,6 +40,12 @@ export interface Series {
    */
   lastKnownMaxOrder: number | null;
   importedAt: number;
+  /**
+   * Source page URL this series was scraped from (the Pi scraper embeds it in
+   * verreaux.json). Null for series imported before this existed or from a
+   * manifest-less ZIP; can be back-filled by the user to enable updates.
+   */
+  sourceUrl: string | null;
   sortOrder: number;
 }
 

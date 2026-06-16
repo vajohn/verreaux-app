@@ -241,6 +241,7 @@ async function importSeries(
         pendingCoverUrl: null,
         coverFetchAttempts: 0,
         coverSource: 'imported',
+        sourceUrl: null,
         chapterCount: 0,
         lastReadChapterId: null,
         lastReadAt: null,
