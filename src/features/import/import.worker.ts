@@ -7,6 +7,7 @@ import {
   type WorkerOutMessage,
   type WorkerLogger,
 } from './importRuntime';
+import { readManifest } from './manifest';
 import type { LogEntry, LogLevel } from '../../db/types';
 
 type WorkerInMessage =
@@ -109,6 +110,9 @@ ctx.addEventListener('message', async (e: MessageEvent<WorkerInMessage>) => {
     const importType = detectImportType(reader, context);
     logger.info('detect', 'import type resolved', { importType });
 
+    const manifest = await readManifest(reader);
+    logger.info('detect', 'manifest', { sourceUrl: manifest?.sourceUrl ?? null });
+
     let seriesCount = 0;
     if (importType === 'type1' || importType === 'type2') {
       seriesCount = await runNewSeriesPipeline(
@@ -118,6 +122,7 @@ ctx.addEventListener('message', async (e: MessageEvent<WorkerInMessage>) => {
         post,
         cancelToken,
         logger,
+        manifest?.sourceUrl ?? null,
       );
     } else {
       if (!targetSeriesId) {
