@@ -98,6 +98,18 @@ export function SettingsPanel() {
     setThemeAttr(theme);
   }, [theme]);
 
+  // Keep the Device-sync view in sync if creds change in another tab.
+  useEffect(() => {
+    function onStorage(e: StorageEvent): void {
+      if (e.key === 'verreaux:syncCreds') {
+        setEnrolled(isEnrolled());
+        setSyncAccountId(getSyncCreds()?.accountId ?? '');
+      }
+    }
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, []);
+
   async function loadProfiles(): Promise<void> {
     const ps = await getAllProfiles();
     setProfiles(ps);
@@ -146,7 +158,7 @@ export function SettingsPanel() {
   async function handleEnroll(): Promise<void> {
     const username = syncUsername.trim();
     const passcode = syncPasscode;
-    const otp = syncOtp.trim();
+    const otp = syncOtp; // already digit-stripped on input
     const deviceName = syncDeviceName.trim() || 'this device';
     if (!username || !passcode) {
       setSyncError('Username and passcode are required.');
@@ -280,13 +292,13 @@ export function SettingsPanel() {
         </div>
       </div>
 
-      {/* Device sync */}
+      <div className="type-section-label settings-section">Device sync</div>
       {enrolled ? (
         <div className="settings-row">
           <div style={{ flex: 1 }}>
-            <span className="type-body">Device sync</span>
+            <span className="type-body">Synced</span>
             <div className="type-nav-label" style={{ color: 'var(--color-text-muted)', marginTop: 2 }}>
-              Synced — account {syncAccountId.length > 12 ? `${syncAccountId.slice(0, 8)}…` : syncAccountId}
+              account {syncAccountId.length > 12 ? `${syncAccountId.slice(0, 8)}…` : syncAccountId}
             </div>
           </div>
           <button
@@ -299,9 +311,9 @@ export function SettingsPanel() {
       ) : (
         <div className="settings-row">
           <div style={{ flex: 1 }}>
-            <span className="type-body">Device sync</span>
+            <span className="type-body">Enroll this device</span>
             <div className="type-nav-label" style={{ color: 'var(--color-text-muted)', marginTop: 2 }}>
-              Enroll this device to sync reading positions. Requires the Pi API URL above.
+              Sync reading positions across devices. Requires the Pi API URL above.
             </div>
             <input
               className="series-title-input type-body"
