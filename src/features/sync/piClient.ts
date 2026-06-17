@@ -20,15 +20,20 @@ export interface ScrapeRequest {
   args: string;
   otp: string;
   type?: 'scrape' | 'probe';
+  /** When set, sent as `Authorization: Bearer` so the Pi authorizes the scrape
+   *  by device token (sync-driven catch-up) instead of an OTP. */
+  deviceToken?: string;
 }
 
 export async function postScrape(req: ScrapeRequest): Promise<string> {
+  const headers: Record<string, string> = { 'content-type': 'application/json' };
+  if (req.deviceToken) headers.authorization = `Bearer ${req.deviceToken}`;
   const res = await fetch(`${requireBase()}/scrape`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers,
     body: JSON.stringify({ url: req.url, args: req.args, type: req.type ?? 'scrape', otp: req.otp }),
   });
-  if (res.status === 401) throw new Error('Invalid authenticator code.');
+  if (res.status === 401) throw new Error('Invalid authenticator code or device token.');
   if (!res.ok) throw new Error(`Scrape request failed (${res.status}).`);
   return ((await res.json()) as { id: string }).id;
 }

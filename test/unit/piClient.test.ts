@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { setApiBase, getApiBase, postScrape, getRunStatus, getRunZip } from '../../src/features/sync/piClient';
+// NOTE: afterEach at module level also applies to the describe blocks below.
 
 // clear() before unstubbing: vi.unstubAllGlobals() can restore Node 25's
 // non-functional localStorage stub, so clear the jsdom Storage first.
@@ -30,7 +31,7 @@ describe('piClient', () => {
   it('throws a clear error on 401', async () => {
     setApiBase('http://pi:8080');
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ error: 'invalid authenticator code' }), { status: 401 })));
-    await expect(postScrape({ url: 'https://x.test/s', args: '', otp: '000000' })).rejects.toThrow(/authenticator/i);
+    await expect(postScrape({ url: 'https://x.test/s', args: '', otp: '000000' })).rejects.toThrow(/Invalid authenticator code or device token/i);
   });
 
   it('reads run status', async () => {
@@ -47,5 +48,26 @@ describe('piClient', () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response('zip-bytes', { status: 200 })));
     const blob = await getRunZip('run-1');
     expect(blob.size).toBeGreaterThan(0);
+  });
+});
+
+describe('postScrape device token', () => {
+  it('sends Authorization: Bearer when deviceToken is provided', async () => {
+    setApiBase('http://pi:8080');
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ id: 'job1' }), { status: 201 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const id = await postScrape({ url: 'https://x/s', args: '--from 49 --to latest', otp: '', deviceToken: 'tok-plain' });
+    expect(id).toBe('job1');
+    const [, init] = fetchMock.mock.calls[0];
+    expect((init.headers as Record<string, string>).authorization).toBe('Bearer tok-plain');
+  });
+
+  it('omits Authorization when no deviceToken', async () => {
+    setApiBase('http://pi:8080');
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ id: 'job2' }), { status: 201 }));
+    vi.stubGlobal('fetch', fetchMock);
+    await postScrape({ url: 'https://x/s', args: '', otp: '123456' });
+    const [, init] = fetchMock.mock.calls[0];
+    expect((init.headers as Record<string, string>).authorization).toBeUndefined();
   });
 });
