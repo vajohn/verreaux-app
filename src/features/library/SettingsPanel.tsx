@@ -6,6 +6,8 @@ import { getApiBase, setApiBase } from '../sync/piClient';
 import { enroll } from '../sync/syncClient';
 import { getSyncCreds, setSyncCreds, clearSyncCreds, isEnrolled } from '../sync/syncCreds';
 import { pullAndReconcile } from '../sync/positionSync';
+import { runCatchUp } from '../sync/defaultCatchUp';
+import type { CatchUpCandidate } from '../sync/catchUp';
 import { useEscape } from '../../lib/useEscape';
 import { ClearProgressSheet } from './ClearProgressSheet';
 import { OptimizeStorageSheet } from './OptimizeStorageSheet';
@@ -74,6 +76,8 @@ export function SettingsPanel() {
   const [syncSubmitting, setSyncSubmitting] = useState(false);
   const [syncBusy, setSyncBusy] = useState(false);
   const [syncNowMsg, setSyncNowMsg] = useState('');
+  const [catchUps, setCatchUps] = useState<CatchUpCandidate[]>([]);
+  const [fetching, setFetching] = useState<string | null>(null); // sourceUrl in progress
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [profilesOpen, setProfilesOpen] = useState(false);
   const [newProfileName, setNewProfileName] = useState('');
@@ -193,10 +197,12 @@ export function SettingsPanel() {
   }
 
   async function handleSyncNow(): Promise<void> {
+    setSyncError('');
     setSyncBusy(true);
     setSyncNowMsg('Syncing…');
     try {
-      await pullAndReconcile(activeProfileId);
+      const candidates = await pullAndReconcile(activeProfileId);
+      setCatchUps(candidates);
       await loadLibrary();
       setSyncNowMsg('Synced just now');
     } catch {
@@ -205,6 +211,24 @@ export function SettingsPanel() {
       setSyncBusy(false);
     }
   }
+
+  const handleFetchOne = async (c: CatchUpCandidate) => {
+    setFetching(c.sourceUrl);
+    try {
+      await runCatchUp(c, activeProfileId);
+      setCatchUps((prev) => prev.filter((x) => x.sourceUrl !== c.sourceUrl));
+      await loadLibrary();
+    } catch (e) {
+      setSyncError(e instanceof Error ? e.message : 'Download failed.');
+    } finally {
+      setFetching(null);
+    }
+  };
+
+  const handleFetchAll = async () => {
+    // Serial: the import worker handles one ZIP at a time.
+    for (const c of [...catchUps]) await handleFetchOne(c);
+  };
 
   function handleSyncSignOut(): void {
     clearSyncCreds();
@@ -316,30 +340,48 @@ export function SettingsPanel() {
 
       <div className="type-section-label settings-section">Device sync</div>
       {enrolled ? (
-        <div className="settings-row">
-          <div style={{ flex: 1 }}>
-            <span className="type-body">Synced</span>
-            <div className="type-nav-label" style={{ color: 'var(--color-text-muted)', marginTop: 2 }}>
-              account {syncAccountId.length > 12 ? `${syncAccountId.slice(0, 8)}…` : syncAccountId}
-              {syncNowMsg ? ` · ${syncNowMsg}` : ''}
+        <>
+          <div className="settings-row">
+            <div style={{ flex: 1 }}>
+              <span className="type-body">Synced</span>
+              <div className="type-nav-label" style={{ color: 'var(--color-text-muted)', marginTop: 2 }}>
+                account {syncAccountId.length > 12 ? `${syncAccountId.slice(0, 8)}…` : syncAccountId}
+                {syncNowMsg ? ` · ${syncNowMsg}` : ''}
+              </div>
             </div>
+            <button
+              className="settings-toggle settings-toggle--on type-button"
+              onClick={() => void handleSyncNow()}
+              disabled={syncBusy}
+              style={{ marginRight: 8 }}
+            >
+              {syncBusy ? 'Syncing…' : 'Sync now'}
+            </button>
+            <button
+              className="settings-toggle settings-toggle--gold type-button"
+              onClick={handleSyncSignOut}
+              disabled={syncBusy}
+            >
+              Sign out
+            </button>
           </div>
-          <button
-            className="settings-toggle settings-toggle--on type-button"
-            onClick={() => void handleSyncNow()}
-            disabled={syncBusy}
-            style={{ marginRight: 8 }}
-          >
-            {syncBusy ? 'Syncing…' : 'Sync now'}
-          </button>
-          <button
-            className="settings-toggle settings-toggle--gold type-button"
-            onClick={handleSyncSignOut}
-            disabled={syncBusy}
-          >
-            Sign out
-          </button>
-        </div>
+          {catchUps.length > 0 && (
+            <div className="sync-catchups">
+              <p>{catchUps.length} series can be downloaded to this device:</p>
+              <ul>
+                {catchUps.map((c) => (
+                  <li key={c.sourceUrl}>
+                    <span>{c.state === 'missing' ? 'New series' : `Behind — from ch. ${c.syncedChapter}`}</span>
+                    <button disabled={fetching !== null} onClick={() => void handleFetchOne(c)}>
+                      {fetching === c.sourceUrl ? 'Downloading…' : 'Fetch'}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              <button disabled={fetching !== null} onClick={() => void handleFetchAll()}>Fetch all</button>
+            </div>
+          )}
+        </>
       ) : (
         <div className="settings-row">
           <div style={{ flex: 1 }}>
