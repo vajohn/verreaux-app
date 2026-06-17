@@ -22,9 +22,6 @@ const queue = createPushQueue({
   debounceMs: 4000,
 });
 
-// Per-profile pull cursor so switching profiles doesn't suppress a profile's
-// never-seen positions via a stale `since`.
-const lastPullByProfile = new Map<string, string>();
 // Bound the pull so an unreachable Pi can't freeze loadLibrary (which awaits it).
 const PULL_TIMEOUT_MS = 5000;
 
@@ -59,17 +56,15 @@ export async function pullAndReconcile(profileId: string): Promise<CatchUpCandid
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), PULL_TIMEOUT_MS);
   try {
-    const since = lastPullByProfile.get(profileId) ?? null;
-    const server = await getPositions(creds.deviceToken, since, controller.signal);
+    // Always pull the FULL position set (not a since-delta): catch-up
+    // classification needs the device's complete divergence from the synced
+    // positions, and reconcile is idempotent — it only applies server-ahead
+    // values, so re-seeing unchanged positions is a no-op.
+    const server = await getPositions(creds.deviceToken, null, controller.signal);
     const local = await localPositionsByUrl(profileId);
     const updates = reconcilePositions(server, local);
     for (const u of updates) await applyServerPosition(profileId, u);
-    // Classify AFTER applying server-ahead updates. Compute candidates BEFORE
-    // advancing the cursor so a failure here doesn't skip the just-pulled
-    // positions on the next pull.
-    const candidates = classifyCatchUp(server, await localSeriesIndexByUrl(profileId));
-    lastPullByProfile.set(profileId, new Date().toISOString());
-    return candidates;
+    return classifyCatchUp(server, await localSeriesIndexByUrl(profileId));
   } catch (e) {
     if (e instanceof SyncAuthError) clearSyncCreds();
     return [];

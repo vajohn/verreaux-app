@@ -44,7 +44,7 @@ it('returns a missing-series candidate when no local series has the sourceUrl', 
   expect(candidates[0]).toMatchObject({ sourceUrl: 'https://x/new', state: 'missing', initial: true, seriesId: null });
 });
 
-it('advances the since cursor so a committed position is not re-surfaced', async () => {
+it('re-surfaces a still-behind series on every pull (full classification, no since cursor)', async () => {
   const s = await createSeries({ profileId: PROFILE, title: 'A', coverImageId: null, sourceUrl: 'https://x/a' });
   await createChapter({ seriesId: s.id, profileId: PROFILE, title: 'c30', order: 30, pageCount: 5 });
   const fetchMock = vi.fn(async () => new Response(
@@ -52,12 +52,9 @@ it('advances the since cursor so a committed position is not re-surfaced', async
     { status: 200 },
   ));
   vi.stubGlobal('fetch', fetchMock);
-  await pullAndReconcile(PROFILE); // first pull surfaces it
-  // second pull: server returns nothing new (simulating a since-filtered response)
-  fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ positions: [] }), { status: 200 }) as any);
+  const first = await pullAndReconcile(PROFILE);
   const second = await pullAndReconcile(PROFILE);
-  expect(second).toEqual([]);
-  // confirm the 2nd request carried a `since` query param (cursor advanced)
-  const secondUrl = String(fetchMock.mock.calls[1]![0]);
-  expect(secondUrl).toContain('since=');
+  expect(first).toHaveLength(1);
+  expect(second).toHaveLength(1); // still behind (no import happened) → still a candidate
+  expect(String(fetchMock.mock.calls[1]![0])).not.toContain('since='); // full fetch, no cursor
 });
