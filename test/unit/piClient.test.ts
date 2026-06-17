@@ -41,7 +41,10 @@ describe('piClient', () => {
 
   it('downloads the zip as a Blob', async () => {
     setApiBase('http://pi:8080');
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(new Blob(['zip-bytes']), { status: 200 })));
+    // Use a string body (not a jsdom Blob): undici's Response.blob() reads the
+    // body via .stream(), which a jsdom Blob lacks on some Node versions
+    // ("object.stream is not a function"). A string body blobs cross-version.
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('zip-bytes', { status: 200 })));
     const blob = await getRunZip('run-1');
     expect(blob.size).toBeGreaterThan(0);
   });
