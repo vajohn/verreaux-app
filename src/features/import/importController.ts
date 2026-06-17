@@ -163,3 +163,21 @@ function launchWorker(args: StartArgs): void {
     runId,
   });
 }
+
+/**
+ * Start an import and resolve when it finishes, reject on error / quota stall.
+ * Used by the sync catch-up orchestrator, which must run prune + position
+ * updates AFTER the import worker has written the fetched chapters.
+ */
+export function importToCompletion(args: StartArgs): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const unsub = useImportStore.subscribe((store) => {
+      const st = store.state.status;
+      if (st === 'success') { unsub(); resolve(); }
+      else if (st === 'error') { unsub(); reject(new Error((store.state as { message?: string }).message ?? 'Import failed.')); }
+      else if (st === 'cancelled') { unsub(); reject(new Error('Import cancelled.')); }
+      else if (st === 'quota-warning') { unsub(); useImportStore.getState().setPendingArgs(null); reject(new Error('Not enough storage to import. Free space and retry.')); }
+    });
+    startImport(args);
+  });
+}
