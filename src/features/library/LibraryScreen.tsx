@@ -31,6 +31,9 @@ export function LibraryScreen() {
   const [addOtpInput, setAddOtpInput] = useState('');
   const [addUrlSubmitting, setAddUrlSubmitting] = useState(false);
   const [addUrlError, setAddUrlError] = useState('');
+  // Optional chapter range; blank -> full series (--from 0 --to latest).
+  const [addFromInput, setAddFromInput] = useState('');
+  const [addToInput, setAddToInput] = useState('');
 
   const handleEscape = useCallback(() => {
     if (addUrlSheet && !addUrlSubmitting) setAddUrlSheet(false);
@@ -48,11 +51,21 @@ export function LibraryScreen() {
       setAddUrlError('Enter the 6-digit authenticator code.');
       return;
     }
+    const from = addFromInput.trim();
+    const to = addToInput.trim();
+    if (from && !/^\d+$/.test(from)) {
+      setAddUrlError('"From" must be a chapter number, or leave it blank for the start.');
+      return;
+    }
+    if (to && to !== 'latest' && !/^\d+$/.test(to)) {
+      setAddUrlError('"To" must be a number or "latest", or leave it blank.');
+      return;
+    }
     setAddUrlSubmitting(true);
     setAddUrlError('');
     try {
       await addFromUrl(
-        { url, otp },
+        { url, otp, from, to },
         {
           runScrape: defaultRunScrape(() => {}),
           startImport,
@@ -64,6 +77,8 @@ export function LibraryScreen() {
       setAddUrlSheet(false);
       setAddUrlInput('');
       setAddOtpInput('');
+      setAddFromInput('');
+      setAddToInput('');
     } catch (e) {
       setAddUrlError(e instanceof Error ? e.message : 'Failed to add from URL.');
     } finally {
@@ -139,7 +154,7 @@ export function LibraryScreen() {
             <div style={{ height: 24 }} />
             <ImportZone context="home" />
             <div style={{ display: 'flex', justifyContent: 'center', marginTop: 12 }}>
-              <Button variant="ghost" onClick={() => { setAddUrlError(''); setAddUrlInput(''); setAddOtpInput(''); setAddUrlSheet(true); }}>
+              <Button variant="ghost" onClick={() => { setAddUrlError(''); setAddUrlInput(''); setAddOtpInput(''); setAddFromInput(''); setAddToInput(''); setAddUrlSheet(true); }}>
                 Add from URL
               </Button>
             </div>
@@ -169,7 +184,7 @@ export function LibraryScreen() {
             </div>
             <ImportZone context="home" />
             <div style={{ display: 'flex', justifyContent: 'center', marginTop: 12 }}>
-              <Button variant="ghost" onClick={() => { setAddUrlError(''); setAddUrlInput(''); setAddOtpInput(''); setAddUrlSheet(true); }}>
+              <Button variant="ghost" onClick={() => { setAddUrlError(''); setAddUrlInput(''); setAddOtpInput(''); setAddFromInput(''); setAddToInput(''); setAddUrlSheet(true); }}>
                 Add from URL
               </Button>
             </div>
@@ -203,6 +218,32 @@ export function LibraryScreen() {
               disabled={addUrlSubmitting}
               autoFocus
             />
+            <div style={{ display: 'flex', gap: 8 }}>
+              <input
+                className="series-title-input type-body"
+                style={{ flex: 1 }}
+                type="text"
+                inputMode="numeric"
+                placeholder="From (0)"
+                aria-label="From chapter (optional, default 0)"
+                value={addFromInput}
+                onChange={(e) => setAddFromInput(e.target.value.replace(/\D/g, ''))}
+                disabled={addUrlSubmitting}
+              />
+              <input
+                className="series-title-input type-body"
+                style={{ flex: 1 }}
+                type="text"
+                placeholder="To (latest)"
+                aria-label="To chapter or 'latest' (optional, default latest)"
+                value={addToInput}
+                onChange={(e) => setAddToInput(e.target.value.replace(/[^0-9a-z]/gi, ''))}
+                disabled={addUrlSubmitting}
+              />
+            </div>
+            <div className="type-body" style={{ opacity: 0.7, fontSize: '0.85em' }}>
+              Leave the range blank to fetch the whole series.
+            </div>
             <input
               className="series-title-input type-body"
               type="text"

@@ -17,4 +17,15 @@ describe('addFromUrl', () => {
     expect(arg.file).toBeInstanceOf(File);
     expect(arg.activeProfileId).toBe('p1');
   });
+
+  it('passes an explicit from/to range through to the scraper', async () => {
+    const startImport = vi.fn();
+    const deps = {
+      runScrape: vi.fn(async () => new Blob(['zip'], { type: 'application/zip' })),
+      startImport,
+      activeProfileId: 'p1',
+    };
+    await addFromUrl({ url: 'https://x.test/s', otp: '123456', from: '1', to: '3' }, deps);
+    expect(deps.runScrape).toHaveBeenCalledWith(expect.objectContaining({ args: '--from 1 --to 3' }));
+  });
 });

@@ -1,4 +1,5 @@
 import type { StartArgs } from '../import/importController';
+import { buildScrapeArgs } from './scrapeArgs';
 
 export interface AddFromUrlDeps {
   runScrape: (req: { url: string; args: string; otp: string }) => Promise<Blob>;
@@ -7,10 +8,12 @@ export interface AddFromUrlDeps {
 }
 
 export async function addFromUrl(
-  input: { url: string; otp: string },
+  // `from`/`to` are optional; omitted -> full series (--from 0 --to latest).
+  input: { url: string; otp: string; from?: string; to?: string },
   deps: AddFromUrlDeps,
 ): Promise<void> {
-  const blob = await deps.runScrape({ url: input.url, args: '--from 0 --to latest', otp: input.otp });
+  const args = buildScrapeArgs(input.from, input.to);
+  const blob = await deps.runScrape({ url: input.url, args, otp: input.otp });
   const file = new File([blob], 'scrape.zip', { type: 'application/zip' });
   deps.startImport({ file, context: 'home', activeProfileId: deps.activeProfileId });
 }
