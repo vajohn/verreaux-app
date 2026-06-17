@@ -12,6 +12,7 @@ export interface CreateSeriesInput {
   title: string;
   coverImageId: string | null;
   chapterCount?: number;
+  sourceUrl?: string | null;
 }
 
 export async function createSeries(input: CreateSeriesInput): Promise<Series> {
@@ -26,6 +27,7 @@ export async function createSeries(input: CreateSeriesInput): Promise<Series> {
     pendingCoverUrl: null,
     coverFetchAttempts: 0,
     coverSource: 'imported',
+    sourceUrl: input.sourceUrl ?? null,
     chapterCount: input.chapterCount ?? 0,
     lastReadChapterId: null,
     lastReadAt: null,
@@ -58,6 +60,10 @@ export async function findSeriesByNormalizedTitle(
 
 export async function updateSeriesTitle(id: string, title: string): Promise<void> {
   await db.series.update(id, { title, normalizedTitle: normalizeTitle(title) });
+}
+
+export async function setSourceUrl(id: string, url: string | null): Promise<void> {
+  await db.series.update(id, { sourceUrl: url });
 }
 
 export async function setLastReadChapter(

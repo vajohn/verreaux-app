@@ -16,10 +16,14 @@ import {
   previewReadChaptersToDelete,
   previewSeriesDeletion,
   deleteReadChapters,
+  setSourceUrl,
   type DeleteReadChaptersResult,
   type SeriesDeletionPreview,
   type DeleteProgress,
 } from '../../db/repos/series.repo';
+import { updateFromSource } from '../sync/updateFromSource';
+import { defaultRunScrape } from '../sync/defaultRunScrape';
+import { startImport } from '../import/importController';
 import { updateChapterTitle } from '../../db/repos/chapters.repo';
 import { upsertProgress, getProgress, clearSeriesProgress } from '../../db/repos/progress.repo';
 import { addBlob } from '../../db/repos/blobs.repo';
@@ -92,6 +96,17 @@ export function SeriesScreen({ seriesId }: SeriesScreenProps) {
   const [coverUrlError, setCoverUrlError] = useState('');
   const coverFileInputRef = useRef<HTMLInputElement | null>(null);
 
+  // Source URL editing (back-fill)
+  const [sourceUrlSheet, setSourceUrlSheet] = useState(false);
+  const [sourceUrlInput, setSourceUrlInput] = useState('');
+  const [sourceUrlSaving, setSourceUrlSaving] = useState(false);
+
+  // Update-from-source sheet
+  const [updateSheet, setUpdateSheet] = useState(false);
+  const [updateOtp, setUpdateOtp] = useState('');
+  const [updateSubmitting, setUpdateSubmitting] = useState(false);
+  const [updateError, setUpdateError] = useState('');
+
   useEffect(() => {
     void loadSeries(seriesId);
   }, [seriesId, loadSeries]);
@@ -157,6 +172,8 @@ export function SeriesScreen({ seriesId }: SeriesScreenProps) {
     if (deleteReadPreview) { setDeleteReadPreview(null); return; }
     if (editingTitle) { setEditingTitle(null); return; }
     if (coverUrlSheet) { setCoverUrlSheet(false); setCoverUrlStatus('idle'); return; }
+    if (updateSheet && !updateSubmitting) { setUpdateSheet(false); return; }
+    if (sourceUrlSheet && !sourceUrlSaving) { setSourceUrlSheet(false); return; }
     if (overflowTarget) { setOverflowTarget(null); }
   }, [
     confirmDelete,
@@ -164,6 +181,10 @@ export function SeriesScreen({ seriesId }: SeriesScreenProps) {
     deleteReadPreview,
     editingTitle,
     coverUrlSheet,
+    updateSheet,
+    updateSubmitting,
+    sourceUrlSheet,
+    sourceUrlSaving,
     overflowTarget,
   ]);
 
@@ -331,6 +352,54 @@ export function SeriesScreen({ seriesId }: SeriesScreenProps) {
     } catch {
       setCoverUrlStatus('error');
       setCoverUrlError('Could not read the selected file.');
+    }
+  }
+
+  // Save source URL (back-fill)
+  async function handleSaveSourceUrl(): Promise<void> {
+    setSourceUrlSaving(true);
+    try {
+      await setSourceUrl(seriesId, sourceUrlInput.trim() || null);
+      await loadSeries(seriesId);
+      await loadLibrary();
+      setSourceUrlSheet(false);
+    } finally {
+      setSourceUrlSaving(false);
+    }
+  }
+
+  // Update from source
+  async function handleUpdateFromSource(): Promise<void> {
+    if (!currentSeries) return;
+    const otp = updateOtp.trim();
+    if (!/^\d{6}$/.test(otp)) {
+      setUpdateError('Enter the 6-digit authenticator code.');
+      return;
+    }
+    setUpdateSubmitting(true);
+    setUpdateError('');
+    try {
+      const last = await db.chapters
+        .where('[seriesId+order]')
+        .between([seriesId, -Infinity], [seriesId, Infinity])
+        .last();
+      const maxKnownOrder = last?.order ?? currentSeries.lastKnownMaxOrder ?? null;
+      await updateFromSource(
+        { id: seriesId, sourceUrl: currentSeries.sourceUrl, maxKnownOrder },
+        { otp },
+        {
+          runScrape: defaultRunScrape(() => {}),
+          startImport,
+          activeProfileId: profileId,
+        },
+      );
+      // The import-progress UI takes over from here, same as a file import.
+      setUpdateSheet(false);
+      setUpdateOtp('');
+    } catch (e) {
+      setUpdateError(e instanceof Error ? e.message : 'Failed to update from source.');
+    } finally {
+      setUpdateSubmitting(false);
     }
   }
 
@@ -536,6 +605,41 @@ export function SeriesScreen({ seriesId }: SeriesScreenProps) {
             </button>
             <button
               className="overflow-action-btn type-body"
+              onClick={() => {
+                setOverflowTarget(null);
+                setSourceUrlInput(currentSeries.sourceUrl ?? '');
+                setSourceUrlSheet(true);
+              }}
+            >
+              Set source URL
+              <div
+                className="type-nav-label"
+                style={{ color: 'var(--color-text-muted)', marginTop: 2 }}
+              >
+                Link this series to a scraper source for updates.
+              </div>
+            </button>
+            {currentSeries.sourceUrl && (
+              <button
+                className="overflow-action-btn type-body"
+                onClick={() => {
+                  setOverflowTarget(null);
+                  setUpdateOtp('');
+                  setUpdateError('');
+                  setUpdateSheet(true);
+                }}
+              >
+                Update from source
+                <div
+                  className="type-nav-label"
+                  style={{ color: 'var(--color-text-muted)', marginTop: 2 }}
+                >
+                  Fetch new chapters from the linked source.
+                </div>
+              </button>
+            )}
+            <button
+              className="overflow-action-btn type-body"
               disabled={seriesProgress.readChapters === 0}
               style={{
                 color: seriesProgress.readChapters === 0 ? 'var(--color-text-muted)' : 'var(--color-gold)',
@@ -687,6 +791,83 @@ export function SeriesScreen({ seriesId }: SeriesScreenProps) {
                 disabled={coverUrlStatus === 'fetching'}
               >
                 {coverUrlStatus === 'fetching' ? 'Working…' : 'Save URL'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Set source URL sheet (back-fill) */}
+      {sourceUrlSheet && (
+        <div className="confirm-sheet" role="dialog" aria-modal="true">
+          <div className="confirm-sheet__inner">
+            <div className="type-section-label" style={{ color: 'var(--color-gold)' }}>
+              Set source URL
+            </div>
+            <input
+              className="series-title-input type-body"
+              type="url"
+              inputMode="url"
+              placeholder="https://… (series page URL)"
+              value={sourceUrlInput}
+              onChange={(e) => setSourceUrlInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') { void handleSaveSourceUrl(); } }}
+              disabled={sourceUrlSaving}
+              autoFocus
+            />
+            <div className="type-nav-label" style={{ color: 'var(--color-text-muted)', marginTop: 4 }}>
+              Leave empty to clear the source link.
+            </div>
+            <div className="confirm-sheet__actions">
+              <Button
+                variant="ghost"
+                onClick={() => setSourceUrlSheet(false)}
+                disabled={sourceUrlSaving}
+              >
+                Cancel
+              </Button>
+              <Button onClick={() => void handleSaveSourceUrl()} disabled={sourceUrlSaving}>
+                {sourceUrlSaving ? 'Saving…' : 'Save'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Update from source sheet */}
+      {updateSheet && (
+        <div className="confirm-sheet" role="dialog" aria-modal="true">
+          <div className="confirm-sheet__inner">
+            <div className="type-section-label" style={{ color: 'var(--color-gold)' }}>
+              Update from source
+            </div>
+            <input
+              className="series-title-input type-body"
+              type="text"
+              inputMode="numeric"
+              maxLength={6}
+              placeholder="6-digit code"
+              value={updateOtp}
+              onChange={(e) => setUpdateOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+              onKeyDown={(e) => { if (e.key === 'Enter') { void handleUpdateFromSource(); } }}
+              disabled={updateSubmitting}
+              autoFocus
+            />
+            {updateError && (
+              <div className="type-body" style={{ color: 'var(--color-gold)' }}>
+                {updateError}
+              </div>
+            )}
+            <div className="confirm-sheet__actions">
+              <Button
+                variant="ghost"
+                onClick={() => setUpdateSheet(false)}
+                disabled={updateSubmitting}
+              >
+                Cancel
+              </Button>
+              <Button onClick={() => void handleUpdateFromSource()} disabled={updateSubmitting}>
+                {updateSubmitting ? 'Working…' : 'Update'}
               </Button>
             </div>
           </div>

@@ -130,6 +130,7 @@ export async function runNewSeriesPipeline(
   emit: Emit,
   cancel: CancelToken = { cancelled: false },
   log: WorkerLogger = NULL_LOGGER,
+  sourceUrl: string | null = null,
 ): Promise<number> {
   const seriesList: SeriesEntry[] =
     importType === 'type1' || importType === 'type2' ? await walkLibrary(zip) : [];
@@ -151,7 +152,7 @@ export async function runNewSeriesPipeline(
       hasCover: !!entry.coverPath,
     });
     try {
-      await importSeries(zip, entry, activeProfileId, emit, cancel, log, totalChapters, startTime, counter);
+      await importSeries(zip, entry, activeProfileId, emit, cancel, log, totalChapters, startTime, counter, sourceUrl);
       log.info('series', 'done', { title: entry.title });
     } catch (err) {
       log.error('series', 'failed', { title: entry.title, error: err });
@@ -172,6 +173,7 @@ async function importSeries(
   totalChapters: number,
   startTime: number,
   counter: { value: number },
+  sourceUrl: string | null,
 ): Promise<void> {
   const incomingNormalized = normalizeTitle(entry.title);
 
@@ -221,11 +223,16 @@ async function importSeries(
         }
       }
       if (existing) {
+        const patch: Partial<typeof existing> = {};
         if (coverImageId && coverImageId !== existing.coverImageId) {
-          await db.series.update(existing.id, {
-            coverImageId,
-            coverSource: 'imported',
-          });
+          patch.coverImageId = coverImageId;
+          patch.coverSource = 'imported';
+        }
+        if (sourceUrl && !existing.sourceUrl) {
+          patch.sourceUrl = sourceUrl;
+        }
+        if (Object.keys(patch).length > 0) {
+          await db.series.update(existing.id, patch);
         }
         return existing.id;
       }
@@ -241,6 +248,7 @@ async function importSeries(
         pendingCoverUrl: null,
         coverFetchAttempts: 0,
         coverSource: 'imported',
+        sourceUrl,
         chapterCount: 0,
         lastReadChapterId: null,
         lastReadAt: null,

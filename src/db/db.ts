@@ -117,6 +117,17 @@ export class VerreauxDB extends Dexie {
           r['scrollPosition'] = 0;
         });
     });
+
+    // v5 — `Series.sourceUrl`: provenance link used by update-from-source.
+    // Non-indexed field; backfill existing rows to null explicitly.
+    this.version(5).upgrade(async (tx) => {
+      await tx
+        .table('series')
+        .toCollection()
+        .modify((s: Record<string, unknown>) => {
+          if (s['sourceUrl'] === undefined) s['sourceUrl'] = null;
+        });
+    });
   }
 }
 

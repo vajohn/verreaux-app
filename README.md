@@ -1,4 +1,35 @@
-# React + TypeScript + Vite
+# Verreaux (React + TypeScript + Vite)
+
+## Source URL & updates
+
+Series can be added or refreshed directly from their source page by driving the
+Pi scraper over HTTP — alongside the existing "import a ZIP" path. Each series
+stores a `sourceUrl`; updates fetch only chapters newer than what's already in
+the library.
+
+**Configure the Pi API** — in Settings, set **Pi scraper API URL** to the Pi
+service (LAN `http://pajohn.local:8080`, or its Tailscale Funnel HTTPS URL for
+off-network use). All scrape/update calls require a 6-digit TOTP code from your
+authenticator (the same secret the Pi's `SCRAPE_TOTP_SECRET` was generated from).
+
+**Add from URL** — Library → "Add from URL": paste a series URL + OTP. The app
+asks the Pi to scrape the full series, downloads the resulting ZIP, and imports
+it like any other. The ZIP's embedded `verreaux.json` records the source URL, so
+the new series is immediately updatable.
+
+**Set source URL (back-fill)** — Series screen → overflow → "Set source URL".
+Attaches a source to a series that has none (e.g. anything imported before this
+feature, or from a manifest-less ZIP), which unlocks updates for it.
+
+**Update from source** — Series screen → overflow → "Update from source" (shown
+only when a source URL is set). Scrapes from one past the highest chapter you
+already have through the latest, and merges the new chapters in by order —
+existing chapters are left untouched.
+
+> Requires the Pi scraper service (the `verreaux-scraper` repo) to be running
+> and reachable. See that repo's README for the Pi/Docker setup.
+
+---
 
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 

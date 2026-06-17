@@ -18,6 +18,7 @@ import {
   BlobReader,
   BlobWriter,
   TextReader,
+  TextWriter,
   Uint8ArrayReader,
   ZipReader as ZipJsReader,
   ZipWriter,
@@ -43,6 +44,7 @@ export interface ZipReader {
   entries(): readonly ZipEntryMeta[];
   has(path: string): boolean;
   readBlob(path: string): Promise<Blob>;
+  readText(path: string): Promise<string>;
   close(): Promise<void>;
 }
 
@@ -92,6 +94,17 @@ class ZipReaderImpl implements ZipReader {
     return fileEntry.getData(new BlobWriter(mime));
   }
 
+  async readText(path: string): Promise<string> {
+    if (this.closed) throw new Error('ZipReader closed');
+    const entry = this.entriesByPath.get(path);
+    if (!entry) throw new Error(`Entry not found: ${path}`);
+    if (entry.directory) throw new Error(`Entry is a directory: ${path}`);
+    const fileEntry = entry as Entry & {
+      getData: (writer: TextWriter) => Promise<string>;
+    };
+    return fileEntry.getData(new TextWriter());
+  }
+
   async close(): Promise<void> {
     if (this.closed) return;
     this.closed = true;
@@ -129,4 +142,4 @@ export async function openZip(source: Blob | Uint8Array): Promise<ZipReader> {
 }
 
 /** Re-export the writer side for use in exportLibrary.ts and tests. */
-export { BlobReader, BlobWriter, TextReader, ZipWriter };
+export { BlobReader, BlobWriter, TextReader, TextWriter, ZipWriter };
