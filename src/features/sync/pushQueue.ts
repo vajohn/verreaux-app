@@ -16,17 +16,34 @@ export interface PushQueue {
 export function createPushQueue(deps: PushQueueDeps): PushQueue {
   const pending = new Map<string, PositionBody>();
   let timer: ReturnType<typeof setTimeout> | null = null;
+  let inflight: Promise<void> | null = null;
 
-  async function flush(): Promise<void> {
+  async function doFlush(): Promise<void> {
     const items = [...pending.values()];
     for (const item of items) {
       try {
         await deps.put(item);
+        // Only drop if no newer enqueue replaced this value mid-flush.
         if (pending.get(item.sourceUrl) === item) pending.delete(item.sourceUrl);
       } catch {
         // keep it for the next flush
       }
     }
+  }
+
+  /** Coalesce overlapping flushes onto one in-flight run so an item can't be
+   *  sent twice (e.g. the debounce timer firing during a manual flush). */
+  function flush(): Promise<void> {
+    if (timer) {
+      clearTimeout(timer);
+      timer = null;
+    }
+    if (!inflight) {
+      inflight = doFlush().finally(() => {
+        inflight = null;
+      });
+    }
+    return inflight;
   }
 
   function enqueue(body: PositionBody): void {

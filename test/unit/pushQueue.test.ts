@@ -31,4 +31,25 @@ describe('pushQueue', () => {
     await q.flush();
     expect(put).toHaveBeenCalledTimes(2);
   });
+
+  it('coalesces overlapping flushes and keeps a value re-enqueued mid-flush', async () => {
+    let resolveFirst!: () => void;
+    const put = vi
+      .fn()
+      .mockImplementationOnce(() => new Promise<void>((r) => { resolveFirst = () => r(); }))
+      .mockResolvedValue(undefined);
+    const q = createPushQueue({ put, debounceMs: 1000 });
+    q.enqueue({ sourceUrl: 's', chapterOrder: 1, pageIndex: 0, manuallyMarked: false });
+    const flushDone = q.flush(); // in-flight, awaiting the first put
+    // re-enqueue a newer value while the first put is still pending
+    q.enqueue({ sourceUrl: 's', chapterOrder: 1, pageIndex: 9, manuallyMarked: false });
+    // a second flush during the in-flight one must coalesce (no duplicate send)
+    const flushDone2 = q.flush();
+    resolveFirst();
+    await Promise.all([flushDone, flushDone2]);
+    expect(put).toHaveBeenCalledTimes(1); // only the first send so far; newer value retained
+    await q.flush();
+    expect(put).toHaveBeenCalledTimes(2);
+    expect(put).toHaveBeenLastCalledWith(expect.objectContaining({ pageIndex: 9 }));
+  });
 });
