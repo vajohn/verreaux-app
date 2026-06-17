@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import type { Series, LibrarySort } from '../../db/types';
 import { getAllSeries } from '../../db/repos/series.repo';
 import { ACTIVE_PROFILE_KEY } from '../../db/bootstrap';
+import { pullAndReconcile } from '../sync/positionSync';
 
 export type LibraryTab = 'library' | 'recent' | 'import' | 'settings';
 
@@ -52,6 +53,9 @@ export const useLibraryStore = create<LibraryStore>((set, get) => ({
   async loadLibrary() {
     set({ isLoading: true });
     const profileId = get().activeProfileId || readActiveProfileId();
+    // Best-effort pull+reconcile before reading so series/progress reflect any
+    // server-advanced positions. Never throws.
+    await pullAndReconcile(profileId);
     const series = await getAllSeries(profileId);
     set({ series, isLoading: false, activeProfileId: profileId });
   },

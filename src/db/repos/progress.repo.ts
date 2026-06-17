@@ -19,9 +19,15 @@ export async function upsertProgress(input: {
   pageIndex: number;
   scrollPosition: number;
   manuallyMarked?: boolean;
+  /**
+   * Bypass the manually-marked guard. The sync pull sets this: reconcile has
+   * already decided the incoming position is strictly *ahead* of local, so it
+   * should advance even over a stale local "mark as read".
+   */
+  force?: boolean;
 }): Promise<void> {
   const existing = await getProgress(input.profileId, input.seriesId);
-  if (existing?.manuallyMarked && input.manuallyMarked !== true) {
+  if (!input.force && existing?.manuallyMarked && input.manuallyMarked !== true) {
     // Do not overwrite a manually marked progress with scroll-only update.
     return;
   }
