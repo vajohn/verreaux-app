@@ -32,5 +32,8 @@ export async function applyServerPosition(profileId: string, update: PositionUpd
     pageIndex: update.pageIndex,
     scrollPosition: 0,
     manuallyMarked: update.manuallyMarked,
+    // reconcile only asks to apply server-ahead positions; advance even over a
+    // stale local "mark as read".
+    force: true,
   });
 }

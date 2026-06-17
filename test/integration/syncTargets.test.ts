@@ -28,6 +28,20 @@ describe('syncTargets', () => {
     const prog = await getProgress(PROFILE, s.id);
     expect(prog?.currentChapterId).toBe(c5.id);
     expect(prog?.pageIndex).toBe(7);
+    expect(prog?.scrollPosition).toBe(0); // viewport-specific, reset on apply
+  });
+
+  it('advances a locally manually-marked series (force bypasses the guard)', async () => {
+    const s = await createSeries({ profileId: PROFILE, title: 'X', coverImageId: null, sourceUrl: 'https://x/s' });
+    const c2 = await createChapter({ seriesId: s.id, profileId: PROFILE, title: 'C2', order: 2, pageCount: 10 });
+    const c8 = await createChapter({ seriesId: s.id, profileId: PROFILE, title: 'C8', order: 8, pageCount: 10 });
+    // Local user marked the series read at chapter 2.
+    await upsertProgress({ profileId: PROFILE, seriesId: s.id, currentChapterId: c2.id, pageIndex: 0, scrollPosition: 0, manuallyMarked: true });
+    // A server-ahead position (ch8) must still advance despite the manual mark.
+    await applyServerPosition(PROFILE, { sourceUrl: 'https://x/s', chapterOrder: 8, pageIndex: 3, manuallyMarked: false });
+    const prog = await getProgress(PROFILE, s.id);
+    expect(prog?.currentChapterId).toBe(c8.id);
+    expect(prog?.pageIndex).toBe(3);
   });
 
   it('skips applying when the series or chapter-order is not present locally', async () => {
