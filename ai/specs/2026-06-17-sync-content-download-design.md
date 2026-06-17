@@ -31,13 +31,16 @@ For each pulled server position, match the local series by `sourceUrl`:
 A "catch-up candidate" is surfaced in the sync UI. Nothing downloads
 automatically.
 
+Whether a candidate is shown depends only on **content to fetch** (missing or
+behind). Whether the fetch **prunes** depends on a separate once-only per-series
+`caughtUp` flag — a candidate carries `initial = !series.caughtUp`.
+
 ### Fetch — two paths
 
-**Initial catch-up** (first time this device joins the series at the shared
-position — gated by a once-only per-series `caughtUp` flag). Logical effect:
-fetch `syncedChapter → latest` and keep only the window from the synced chapter
-onward. **Execution order is fetch-first, prune-second** so a failed download
-never destroys chapters:
+**Initial catch-up** (`initial === true`: this device has not yet caught up on
+this series). Logical effect: fetch `syncedChapter → latest` and keep only the
+window from the synced chapter onward. **Execution order is fetch-first,
+prune-second** so a failed download never destroys chapters:
 
 1. **Fetch** `syncedChapter → latest`, skipping chapters already present
    (the existing import pipeline already skips existing chapter orders).
@@ -47,22 +50,28 @@ never destroys chapters:
    manually-marked guard).
 4. **Mark** the series `caughtUp = true`.
 
-**Every later sync** (series already `caughtUp`): route to the existing
-`updateFromSource` path — fetch `localMax+1 → latest`, advance the read pointer,
-**no pruning**. This path already exists and is unchanged.
+**Every later sync** (`initial === false`: series already `caughtUp`): route to
+the existing `updateFromSource` path — fetch `localMax+1 → latest`, advance the
+read pointer, **no pruning**. This path already exists and is unchanged.
 
 ### Worked examples (user-provided)
 
-| Local   | Synced | Fetch          | Prune       | Result    |
-|---------|--------|----------------|-------------|-----------|
-| 1–30    | 49     | 49→latest      | delete 1–30 | 49→latest |
-| none    | 49     | 49→latest      | —           | 49→latest |
-| 1–60    | 49     | none (60≥latest)| delete 1–48 | 49–60     |
+Each row is the series' **initial** catch-up (`caughtUp` still false):
 
-The third row is an **initial catch-up** of a device that happens to already
-hold 1–60 (e.g. from a ZIP import): it prunes 1–48 and keeps the 49–60 window.
-A device that is merely the pace-setter — reading along, already `caughtUp` —
-never prunes.
+| Local   | Synced | Candidate? | Fetch     | Prune       | Result    |
+|---------|--------|------------|-----------|-------------|-----------|
+| 1–30    | 49     | yes (behind)  | 49→latest | delete 1–30 | 49→latest |
+| none    | 49     | yes (missing) | 49→latest | —           | 49→latest |
+| 1–60    | 49     | **no** (max 60 ≥ 49) | — | — | 1–60 unchanged |
+
+The third row is a device whose local content is **ahead of** the synced
+position — by the classifier rule (offer only when `synced > localMax` or
+missing) it is **not** a candidate, so nothing is fetched and nothing is pruned.
+This is the deliberate resolution of "pruning only kicks in on a device syncing
+to catch up": a device that is at or ahead of the shared position is the
+pace-setter, never the catcher-up, so it is left alone. (This supersedes the
+earlier reading of this row as a prune-to-window — that reading conflicted with
+the pace-setter rule.)
 
 ## Trigger UX
 
@@ -97,9 +106,13 @@ and need no prompt.
 ### PWA (`verreaux-app`)
 
 - **`src/db/types.ts` + `src/db/db.ts`** — add `Series.caughtUp?: boolean` and a
-  Dexie schema version bump (migration defaults existing rows so they are NOT
-  treated as needing initial catch-up — existing local series are already
-  "caught up" by definition).
+  Dexie schema version bump. The flag distinguishes a series' **initial**
+  catch-up (prune) from later updates (no prune); it does **not** decide whether
+  a series is offered. Both new series (`createSeries`) and existing rows
+  (migration) default to `false` ("not yet caught up"), so the first time a
+  series is genuinely behind a shared position it gets the window treatment, and
+  every sync after that uses the no-prune update path. A pace-setting device is
+  never behind, so the flag never causes it to prune.
 - **`src/db/repos/series.repo.ts`** — `setCaughtUp(seriesId)`; helper to read the
   flag.
 - **`src/db/repos/chapter.repo.ts`** (or equivalent) — `deleteChaptersBelow(seriesId, order)`
