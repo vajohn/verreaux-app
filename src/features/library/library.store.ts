@@ -55,7 +55,7 @@ export const useLibraryStore = create<LibraryStore>((set, get) => ({
     const profileId = get().activeProfileId || readActiveProfileId();
     // Best-effort pull+reconcile before reading so series/progress reflect any
     // server-advanced positions. Never throws.
-    await pullAndReconcile(profileId);
+    await pullAndReconcile(profileId); // catch-up candidates are surfaced via Settings → Sync
     const series = await getAllSeries(profileId);
     set({ series, isLoading: false, activeProfileId: profileId });
   },

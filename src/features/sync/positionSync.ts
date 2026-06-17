@@ -4,6 +4,7 @@ import { putPosition, getPositions, SyncAuthError } from './syncClient';
 import { createPushQueue } from './pushQueue';
 import { reconcilePositions } from './reconcile';
 import { localPositionsByUrl, applyServerPosition } from './syncTargets';
+import { classifyCatchUp, localSeriesIndexByUrl, type CatchUpCandidate } from './catchUp';
 
 const queue = createPushQueue({
   put: async (body) => {
@@ -49,10 +50,12 @@ export function flushSync(): Promise<void> {
   return queue.flush();
 }
 
-/** Pull + reconcile for a profile. Best-effort: swallows network errors. */
-export async function pullAndReconcile(profileId: string): Promise<void> {
+/** Pull + reconcile for a profile, returning catch-up candidates (series this
+ *  device is missing or behind on). Best-effort: returns [] on error / when not
+ *  enrolled. */
+export async function pullAndReconcile(profileId: string): Promise<CatchUpCandidate[]> {
   const creds = getSyncCreds();
-  if (!creds) return;
+  if (!creds) return [];
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), PULL_TIMEOUT_MS);
   try {
@@ -61,11 +64,15 @@ export async function pullAndReconcile(profileId: string): Promise<void> {
     const local = await localPositionsByUrl(profileId);
     const updates = reconcilePositions(server, local);
     for (const u of updates) await applyServerPosition(profileId, u);
+    // Classify AFTER applying server-ahead updates. Compute candidates BEFORE
+    // advancing the cursor so a failure here doesn't skip the just-pulled
+    // positions on the next pull.
+    const candidates = classifyCatchUp(server, await localSeriesIndexByUrl(profileId));
     lastPullByProfile.set(profileId, new Date().toISOString());
+    return candidates;
   } catch (e) {
-    // Revoked token → drop creds (prompt re-enroll). Other errors (offline /
-    // timed out) are best-effort — try again next time.
     if (e instanceof SyncAuthError) clearSyncCreds();
+    return [];
   } finally {
     clearTimeout(timer);
   }
