@@ -29,7 +29,9 @@ export async function applyServerPosition(profileId: string, update: PositionUpd
     profileId,
     seriesId: series.id,
     currentChapterId: chapter.id,
-    pageIndex: update.pageIndex,
+    // Clamp: a re-imported chapter may now have fewer pages than the synced
+    // position, so never point past the last page.
+    pageIndex: Math.min(update.pageIndex, Math.max(0, chapter.pageCount - 1)),
     scrollPosition: 0,
     manuallyMarked: update.manuallyMarked,
     // reconcile only asks to apply server-ahead positions; advance even over a

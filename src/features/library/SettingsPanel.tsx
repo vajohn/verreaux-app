@@ -168,6 +168,8 @@ export function SettingsPanel() {
       setSyncError('Enter the 6-digit authenticator code.');
       return;
     }
+    // Commit the API URL in case it was typed but not yet blurred.
+    if (piApiBase.trim()) setApiBase(piApiBase.trim());
     setSyncError('');
     setSyncSubmitting(true);
     try {

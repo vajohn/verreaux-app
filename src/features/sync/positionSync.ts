@@ -1,15 +1,22 @@
 import { db } from '../../db/db';
-import { getSyncCreds } from './syncCreds';
-import { putPosition, getPositions } from './syncClient';
+import { getSyncCreds, clearSyncCreds } from './syncCreds';
+import { putPosition, getPositions, SyncAuthError } from './syncClient';
 import { createPushQueue } from './pushQueue';
 import { reconcilePositions } from './reconcile';
 import { localPositionsByUrl, applyServerPosition } from './syncTargets';
 
 const queue = createPushQueue({
-  put: (body) => {
+  put: async (body) => {
     const creds = getSyncCreds();
     if (!creds) throw new Error('not enrolled');
-    return putPosition(creds.deviceToken, body);
+    try {
+      return await putPosition(creds.deviceToken, body);
+    } catch (e) {
+      // Revoked/invalid token: drop creds so the UI prompts re-enroll and we
+      // stop retrying a dead token.
+      if (e instanceof SyncAuthError) clearSyncCreds();
+      throw e;
+    }
   },
   debounceMs: 4000,
 });
@@ -55,8 +62,10 @@ export async function pullAndReconcile(profileId: string): Promise<void> {
     const updates = reconcilePositions(server, local);
     for (const u of updates) await applyServerPosition(profileId, u);
     lastPullByProfile.set(profileId, new Date().toISOString());
-  } catch {
-    // offline / unreachable / timed out — try again next time
+  } catch (e) {
+    // Revoked token → drop creds (prompt re-enroll). Other errors (offline /
+    // timed out) are best-effort — try again next time.
+    if (e instanceof SyncAuthError) clearSyncCreds();
   } finally {
     clearTimeout(timer);
   }

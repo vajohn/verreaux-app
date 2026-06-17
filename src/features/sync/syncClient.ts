@@ -1,5 +1,9 @@
 import { getApiBase } from './piClient';
 
+/** Thrown on a 401 from a token-authed sync call (revoked/invalid device token)
+ *  so callers can clear creds and prompt re-enroll. */
+export class SyncAuthError extends Error {}
+
 function base(): string {
   const b = getApiBase();
   if (!b) throw new Error('Pi API base URL is not configured. Set it in Settings.');
@@ -40,7 +44,7 @@ export async function putPosition(token: string, body: PositionBody): Promise<Po
     headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
     body: JSON.stringify(body),
   });
-  if (res.status === 401) throw new Error('Sync auth failed — re-enroll this device.');
+  if (res.status === 401) throw new SyncAuthError('Sync auth failed — re-enroll this device.');
   if (!res.ok) throw new Error(`Position sync failed (${res.status}).`);
   return (await res.json()) as PositionBody;
 }
@@ -51,7 +55,7 @@ export async function getPositions(token: string, since: string | null, signal?:
     headers: { authorization: `Bearer ${token}` },
     signal,
   });
-  if (res.status === 401) throw new Error('Sync auth failed — re-enroll this device.');
+  if (res.status === 401) throw new SyncAuthError('Sync auth failed — re-enroll this device.');
   if (!res.ok) throw new Error(`Could not fetch positions (${res.status}).`);
   // `?? []` guards against server shape drift (missing/null positions) so
   // callers can always iterate safely.
