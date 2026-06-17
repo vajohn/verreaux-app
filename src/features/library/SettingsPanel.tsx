@@ -5,6 +5,7 @@ import { exportLibrary } from './exportLibrary';
 import { getApiBase, setApiBase } from '../sync/piClient';
 import { enroll } from '../sync/syncClient';
 import { getSyncCreds, setSyncCreds, clearSyncCreds, isEnrolled } from '../sync/syncCreds';
+import { pullAndReconcile } from '../sync/positionSync';
 import { useEscape } from '../../lib/useEscape';
 import { ClearProgressSheet } from './ClearProgressSheet';
 import { OptimizeStorageSheet } from './OptimizeStorageSheet';
@@ -56,6 +57,7 @@ export function SettingsPanel() {
   const setLibrarySort = useLibraryStore((s) => s.setLibrarySort);
   const activeProfileId = useLibraryStore((s) => s.activeProfileId);
   const switchProfile = useLibraryStore((s) => s.switchProfile);
+  const loadLibrary = useLibraryStore((s) => s.loadLibrary);
 
   const [compressOnImport, setCompressOnImport] = useState<boolean>(() => {
     try { return localStorage.getItem('verreaux:compress-on-import') === '1'; } catch { return false; }
@@ -70,6 +72,8 @@ export function SettingsPanel() {
   const [syncDeviceName, setSyncDeviceName] = useState('this device');
   const [syncError, setSyncError] = useState('');
   const [syncSubmitting, setSyncSubmitting] = useState(false);
+  const [syncBusy, setSyncBusy] = useState(false);
+  const [syncNowMsg, setSyncNowMsg] = useState('');
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [profilesOpen, setProfilesOpen] = useState(false);
   const [newProfileName, setNewProfileName] = useState('');
@@ -180,10 +184,25 @@ export function SettingsPanel() {
       setSyncUsername('');
       setSyncPasscode('');
       setSyncOtp('');
+      void handleSyncNow(); // pull this account's positions right after enrolling
     } catch (e) {
       setSyncError(e instanceof Error ? e.message : 'Enrollment failed.');
     } finally {
       setSyncSubmitting(false);
+    }
+  }
+
+  async function handleSyncNow(): Promise<void> {
+    setSyncBusy(true);
+    setSyncNowMsg('Syncing…');
+    try {
+      await pullAndReconcile(activeProfileId);
+      await loadLibrary();
+      setSyncNowMsg('Synced just now');
+    } catch {
+      setSyncNowMsg('Sync failed — check the Pi API URL.');
+    } finally {
+      setSyncBusy(false);
     }
   }
 
@@ -192,6 +211,7 @@ export function SettingsPanel() {
     setEnrolled(false);
     setSyncAccountId('');
     setSyncError('');
+    setSyncNowMsg('');
   }
 
   return (
@@ -301,11 +321,21 @@ export function SettingsPanel() {
             <span className="type-body">Synced</span>
             <div className="type-nav-label" style={{ color: 'var(--color-text-muted)', marginTop: 2 }}>
               account {syncAccountId.length > 12 ? `${syncAccountId.slice(0, 8)}…` : syncAccountId}
+              {syncNowMsg ? ` · ${syncNowMsg}` : ''}
             </div>
           </div>
           <button
+            className="settings-toggle settings-toggle--on type-button"
+            onClick={() => void handleSyncNow()}
+            disabled={syncBusy}
+            style={{ marginRight: 8 }}
+          >
+            {syncBusy ? 'Syncing…' : 'Sync now'}
+          </button>
+          <button
             className="settings-toggle settings-toggle--gold type-button"
             onClick={handleSyncSignOut}
+            disabled={syncBusy}
           >
             Sign out
           </button>
