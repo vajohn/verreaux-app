@@ -46,6 +46,13 @@ export interface Series {
    * manifest-less ZIP; can be back-filled by the user to enable updates.
    */
   sourceUrl: string | null;
+  /**
+   * Whether this device has completed its one-time sync catch-up for the
+   * series. `false` until an initial catch-up runs (which prunes chapters
+   * below the synced position); `true` afterward, so later syncs use the
+   * no-prune update path. New series and existing rows both default to false.
+   */
+  caughtUp?: boolean;
   sortOrder: number;
 }
 

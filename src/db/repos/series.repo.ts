@@ -28,6 +28,7 @@ export async function createSeries(input: CreateSeriesInput): Promise<Series> {
     coverFetchAttempts: 0,
     coverSource: 'imported',
     sourceUrl: input.sourceUrl ?? null,
+    caughtUp: false,
     chapterCount: input.chapterCount ?? 0,
     lastReadChapterId: null,
     lastReadAt: null,

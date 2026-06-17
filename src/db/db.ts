@@ -128,6 +128,20 @@ export class VerreauxDB extends Dexie {
           if (s['sourceUrl'] === undefined) s['sourceUrl'] = null;
         });
     });
+
+    // v6 — `Series.caughtUp`: marks a series' one-time sync catch-up as done.
+    // Non-indexed field; backfill existing rows to false (not yet caught up),
+    // so a series that is genuinely behind a shared position still gets its
+    // initial windowed catch-up. A pace-setter is never behind, so this never
+    // causes an unwanted prune.
+    this.version(6).upgrade(async (tx) => {
+      await tx
+        .table('series')
+        .toCollection()
+        .modify((s: Record<string, unknown>) => {
+          if (s['caughtUp'] === undefined) s['caughtUp'] = false;
+        });
+    });
   }
 }
 
