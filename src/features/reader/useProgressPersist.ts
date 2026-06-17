@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { upsertProgress } from '../../db/repos/progress.repo';
 import { setLastReadChapter } from '../../db/repos/series.repo';
+import { notifyProgress, flushSync } from '../sync/positionSync';
 
 interface ProgressSnapshot {
   chapterId: string | null;
@@ -34,6 +35,7 @@ export function useProgressPersist(
         scrollPosition: snap.scrollPosition,
       });
       await setLastReadChapter(seriesId, snap.chapterId, Date.now());
+      void notifyProgress(profileId, seriesId, snap.chapterId, snap.pageIndex, false);
     };
   }, [profileId, seriesId, getCurrentProgress]);
 
@@ -48,6 +50,7 @@ export function useProgressPersist(
     const flush = (): void => {
       if (pendingRef.current) clearTimeout(pendingRef.current);
       void persist.current();
+      void flushSync();
     };
     document.addEventListener('visibilitychange', flush);
     window.addEventListener('pagehide', flush);
