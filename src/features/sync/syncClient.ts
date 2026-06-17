@@ -45,10 +45,11 @@ export async function putPosition(token: string, body: PositionBody): Promise<Po
   return (await res.json()) as PositionBody;
 }
 
-export async function getPositions(token: string, since: string | null): Promise<ServerPosition[]> {
+export async function getPositions(token: string, since: string | null, signal?: AbortSignal): Promise<ServerPosition[]> {
   const qs = since ? `?since=${encodeURIComponent(since)}` : '';
   const res = await fetch(`${base()}/sync/positions${qs}`, {
     headers: { authorization: `Bearer ${token}` },
+    signal,
   });
   if (res.status === 401) throw new Error('Sync auth failed — re-enroll this device.');
   if (!res.ok) throw new Error(`Could not fetch positions (${res.status}).`);

@@ -14,7 +14,11 @@ const queue = createPushQueue({
   debounceMs: 4000,
 });
 
-let lastPull: string | null = null;
+// Per-profile pull cursor so switching profiles doesn't suppress a profile's
+// never-seen positions via a stale `since`.
+const lastPullByProfile = new Map<string, string>();
+// Bound the pull so an unreachable Pi can't freeze loadLibrary (which awaits it).
+const PULL_TIMEOUT_MS = 5000;
 
 /** Called from the reader after a progress save. Looks up the series' sourceUrl
  *  + chapter order and enqueues a push. No-op if not enrolled or no sourceUrl. */
@@ -42,13 +46,18 @@ export function flushSync(): Promise<void> {
 export async function pullAndReconcile(profileId: string): Promise<void> {
   const creds = getSyncCreds();
   if (!creds) return;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), PULL_TIMEOUT_MS);
   try {
-    const server = await getPositions(creds.deviceToken, lastPull);
+    const since = lastPullByProfile.get(profileId) ?? null;
+    const server = await getPositions(creds.deviceToken, since, controller.signal);
     const local = await localPositionsByUrl(profileId);
     const updates = reconcilePositions(server, local);
     for (const u of updates) await applyServerPosition(profileId, u);
-    lastPull = new Date().toISOString();
+    lastPullByProfile.set(profileId, new Date().toISOString());
   } catch {
-    // offline / not reachable — try again next time
+    // offline / unreachable / timed out — try again next time
+  } finally {
+    clearTimeout(timer);
   }
 }

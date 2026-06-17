@@ -35,6 +35,8 @@ export function useProgressPersist(
         scrollPosition: snap.scrollPosition,
       });
       await setLastReadChapter(seriesId, snap.chapterId, Date.now());
+      // This is the scroll-progress path, so manuallyMarked is always false here.
+      // (The "mark as read" gesture lives elsewhere and is not synced for now.)
       void notifyProgress(profileId, seriesId, snap.chapterId, snap.pageIndex, false);
     };
   }, [profileId, seriesId, getCurrentProgress]);
