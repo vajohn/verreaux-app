@@ -3,6 +3,8 @@ import { useLibraryStore } from './library.store';
 import { getAllProfiles, createProfile, renameProfile, deleteProfile } from '../../db/repos/profiles.repo';
 import { exportLibrary } from './exportLibrary';
 import { getApiBase, setApiBase } from '../sync/piClient';
+import { enroll } from '../sync/syncClient';
+import { getSyncCreds, setSyncCreds, clearSyncCreds, isEnrolled } from '../sync/syncCreds';
 import { useEscape } from '../../lib/useEscape';
 import { ClearProgressSheet } from './ClearProgressSheet';
 import { OptimizeStorageSheet } from './OptimizeStorageSheet';
@@ -60,6 +62,14 @@ export function SettingsPanel() {
   });
   const [exportStatus, setExportStatus] = useState<'idle' | 'exporting' | 'done'>('idle');
   const [piApiBase, setPiApiBase] = useState<string>(() => getApiBase());
+  const [enrolled, setEnrolled] = useState<boolean>(() => isEnrolled());
+  const [syncAccountId, setSyncAccountId] = useState<string>(() => getSyncCreds()?.accountId ?? '');
+  const [syncUsername, setSyncUsername] = useState('');
+  const [syncPasscode, setSyncPasscode] = useState('');
+  const [syncOtp, setSyncOtp] = useState('');
+  const [syncDeviceName, setSyncDeviceName] = useState('this device');
+  const [syncError, setSyncError] = useState('');
+  const [syncSubmitting, setSyncSubmitting] = useState(false);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [profilesOpen, setProfilesOpen] = useState(false);
   const [newProfileName, setNewProfileName] = useState('');
@@ -131,6 +141,43 @@ export function SettingsPanel() {
     }
     setDeleteTarget(null);
     await loadProfiles();
+  }
+
+  async function handleEnroll(): Promise<void> {
+    const username = syncUsername.trim();
+    const passcode = syncPasscode;
+    const otp = syncOtp.trim();
+    const deviceName = syncDeviceName.trim() || 'this device';
+    if (!username || !passcode) {
+      setSyncError('Username and passcode are required.');
+      return;
+    }
+    if (!/^\d{6}$/.test(otp)) {
+      setSyncError('Enter the 6-digit authenticator code.');
+      return;
+    }
+    setSyncError('');
+    setSyncSubmitting(true);
+    try {
+      const r = await enroll({ username, passcode, otp, deviceName });
+      setSyncCreds(r);
+      setSyncAccountId(r.accountId);
+      setEnrolled(true);
+      setSyncUsername('');
+      setSyncPasscode('');
+      setSyncOtp('');
+    } catch (e) {
+      setSyncError(e instanceof Error ? e.message : 'Enrollment failed.');
+    } finally {
+      setSyncSubmitting(false);
+    }
+  }
+
+  function handleSyncSignOut(): void {
+    clearSyncCreds();
+    setEnrolled(false);
+    setSyncAccountId('');
+    setSyncError('');
   }
 
   return (
@@ -232,6 +279,83 @@ export function SettingsPanel() {
           />
         </div>
       </div>
+
+      {/* Device sync */}
+      {enrolled ? (
+        <div className="settings-row">
+          <div style={{ flex: 1 }}>
+            <span className="type-body">Device sync</span>
+            <div className="type-nav-label" style={{ color: 'var(--color-text-muted)', marginTop: 2 }}>
+              Synced — account {syncAccountId.length > 12 ? `${syncAccountId.slice(0, 8)}…` : syncAccountId}
+            </div>
+          </div>
+          <button
+            className="settings-toggle settings-toggle--gold type-button"
+            onClick={handleSyncSignOut}
+          >
+            Sign out
+          </button>
+        </div>
+      ) : (
+        <div className="settings-row">
+          <div style={{ flex: 1 }}>
+            <span className="type-body">Device sync</span>
+            <div className="type-nav-label" style={{ color: 'var(--color-text-muted)', marginTop: 2 }}>
+              Enroll this device to sync reading positions. Requires the Pi API URL above.
+            </div>
+            <input
+              className="series-title-input type-body"
+              type="text"
+              placeholder="Username"
+              autoComplete="username"
+              value={syncUsername}
+              onChange={(e) => setSyncUsername(e.target.value)}
+              style={{ marginTop: 8, width: '100%' }}
+            />
+            <input
+              className="series-title-input type-body"
+              type="password"
+              placeholder="Passcode"
+              autoComplete="current-password"
+              value={syncPasscode}
+              onChange={(e) => setSyncPasscode(e.target.value)}
+              style={{ marginTop: 8, width: '100%' }}
+            />
+            <input
+              className="series-title-input type-body"
+              type="text"
+              inputMode="numeric"
+              placeholder="6-digit code"
+              maxLength={6}
+              value={syncOtp}
+              onChange={(e) => setSyncOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+              style={{ marginTop: 8, width: '100%' }}
+            />
+            <input
+              className="series-title-input type-body"
+              type="text"
+              placeholder="Device name"
+              maxLength={40}
+              value={syncDeviceName}
+              onChange={(e) => setSyncDeviceName(e.target.value)}
+              style={{ marginTop: 8, width: '100%' }}
+            />
+            {syncError && (
+              <div className="type-nav-label" style={{ color: 'var(--color-gold)', marginTop: 8 }}>
+                {syncError}
+              </div>
+            )}
+            <button
+              className="settings-toggle settings-toggle--on type-button"
+              style={{ marginTop: 8 }}
+              disabled={syncSubmitting || !piApiBase.trim()}
+              onClick={() => void handleEnroll()}
+            >
+              {syncSubmitting ? 'Enrolling…' : 'Enroll'}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Export */}
       <div className="type-section-label settings-section">Export</div>

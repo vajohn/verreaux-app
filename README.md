@@ -29,6 +29,23 @@ existing chapters are left untouched.
 > Requires the Pi scraper service (the `verreaux-scraper` repo) to be running
 > and reachable. See that repo's README for the Pi/Docker setup.
 
+### Multi-device sync
+
+Reading positions can sync across your devices through the same Pi service.
+
+1. **Set the Pi API URL** (see above) — sync uses the same endpoint as scraping.
+2. **Enroll the device** — in Settings → **Device sync**, enter your username,
+   passcode, and the 6-digit authenticator code (the same TOTP code used for
+   scraping), then **Enroll**. A device name is optional.
+
+Once enrolled, the chapter/page you're on syncs to your account and is picked up
+by every other enrolled device. Reconciliation is **furthest-position-wins**:
+the device with the most-advanced position generally wins, though the device
+that owns the latest position may intentionally move it backward (e.g. to
+re-read), and that explicit move is honoured.
+
+Use **Sign out** in the same section to un-enroll a device locally.
+
 ---
 
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
