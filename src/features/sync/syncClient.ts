@@ -52,5 +52,7 @@ export async function getPositions(token: string, since: string | null): Promise
   });
   if (res.status === 401) throw new Error('Sync auth failed — re-enroll this device.');
   if (!res.ok) throw new Error(`Could not fetch positions (${res.status}).`);
-  return ((await res.json()) as { positions: ServerPosition[] }).positions;
+  // `?? []` guards against server shape drift (missing/null positions) so
+  // callers can always iterate safely.
+  return ((await res.json()) as { positions?: ServerPosition[] }).positions ?? [];
 }

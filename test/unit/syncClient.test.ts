@@ -22,6 +22,12 @@ describe('syncClient', () => {
     await expect(enroll({ username: 'u', passcode: 'x', otp: '000000', deviceName: 'iPad' })).rejects.toThrow(/passcode|authenticator|401/i);
   });
 
+  it('enroll uses the friendly fallback message when the 401 body has no error field', async () => {
+    setApiBase('http://pi:8080');
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 401 })));
+    await expect(enroll({ username: 'u', passcode: 'x', otp: '000000', deviceName: 'iPad' })).rejects.toThrow(/Enrollment rejected/i);
+  });
+
   it('putPosition sends the bearer token + body', async () => {
     setApiBase('http://pi:8080');
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({ sourceUrl: 's', chapterOrder: 12, pageIndex: 5, manuallyMarked: false }), { status: 200 }));

@@ -23,4 +23,10 @@ describe('syncCreds', () => {
     localStorage.setItem('verreaux:syncCreds', '{not json');
     expect(getSyncCreds()).toBeNull();
   });
+
+  it('returns null on a structurally incomplete object', () => {
+    localStorage.setItem('verreaux:syncCreds', JSON.stringify({ accountId: 'a', deviceId: 'd' })); // no deviceToken
+    expect(getSyncCreds()).toBeNull();
+    expect(isEnrolled()).toBe(false);
+  });
 });
