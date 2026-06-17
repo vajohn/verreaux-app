@@ -67,6 +67,10 @@ export async function setSourceUrl(id: string, url: string | null): Promise<void
   await db.series.update(id, { sourceUrl: url });
 }
 
+export async function setCaughtUp(seriesId: string): Promise<void> {
+  await db.series.update(seriesId, { caughtUp: true });
+}
+
 export async function setLastReadChapter(
   seriesId: string,
   chapterId: string,
@@ -358,6 +362,50 @@ export async function deleteReadChapters(
   );
 
   return { chaptersDeleted: chapterIds.length, bytesFreed: 0 };
+}
+
+/**
+ * Delete every chapter in the series whose `order` is STRICTLY BELOW `order`
+ * (the synced chapter is kept). Used by the initial sync catch-up to keep only
+ * the window from the synced position onward. Mirrors deleteReadChapters'
+ * chunked blob/page deletion + records-tx pattern. Returns chapters removed.
+ */
+export async function deleteChaptersBelowOrder(
+  seriesId: string,
+  order: number,
+): Promise<number> {
+  // [-Infinity, order) — lower-inclusive, upper-exclusive: keeps `order`.
+  const doomed = await db.chapters
+    .where('[seriesId+order]')
+    .between([seriesId, -Infinity], [seriesId, order], true, false)
+    .toArray();
+  const chapterIds = doomed.map((c) => c.id);
+  if (chapterIds.length === 0) return 0;
+
+  const pages = await db.pages.where('chapterId').anyOf(chapterIds).toArray();
+  const blobIds = pages.map((p) => p.blobId);
+
+  for (let i = 0; i < blobIds.length; i += DELETE_BATCH_SIZE) {
+    await db.blobs.bulkDelete(blobIds.slice(i, i + DELETE_BATCH_SIZE));
+    await yieldToReads();
+  }
+  const pageIds = pages.map((p) => p.id);
+  for (let i = 0; i < pageIds.length; i += DELETE_BATCH_SIZE) {
+    await db.pages.bulkDelete(pageIds.slice(i, i + DELETE_BATCH_SIZE));
+    await yieldToReads();
+  }
+
+  // readingProgress is intentionally NOT modified here. The caller (catchUpRun)
+  // sets progress to the synced chapter AFTER this prune. Do not call this in a
+  // context where an existing progress row points at a chapter below `order`.
+  await db.transaction('rw', [db.series, db.chapters, db.bookmarks], async () => {
+    await db.bookmarks.where('chapterId').anyOf(chapterIds).delete();
+    await db.chapters.where('id').anyOf(chapterIds).delete();
+    const newCount = await db.chapters.where('seriesId').equals(seriesId).count();
+    await db.series.update(seriesId, { chapterCount: newCount });
+  });
+
+  return chapterIds.length;
 }
 
 /**
