@@ -102,6 +102,18 @@ and need no prompt.
   drop-folder mechanics.
 - (`resolveDevice` in `src/pi/syncHandlers.ts` already exists and is reused
   as-is.)
+- **ZIP reuse (speed optimization, wraps the scrape — pipeline untouched):** a
+  catch-up scrape consults the recent run ZIPs already in `done/` for the same
+  `sourceUrl`. From the freshest cached ZIP it takes the contiguous chapter run
+  starting at the requested `from` (`F..K`), narrows the scrape to
+  `--from K+1 --to latest`, and assembles `output.zip` from the cached `F..K`
+  chapters + the freshly-scraped delta + a recomputed `verreaux.json`. Nothing
+  cached → behaves exactly as today. Reuse is keyed on `(sourceUrl, order)` and
+  is safe because a published chapter's images do not change; it is bounded by
+  the existing 1-day `done/` TTL. New modules: `zipIndex`, `cachePlan`,
+  `zipAssemble`, `cacheAssist` (orchestrator wired into the worker's scrape
+  callback). Detailed in `scraper/ai/plans/2026-06-17-scrape-device-token-auth.md`
+  (Tasks 2-5). This is deferrable independently of the device-side feature.
 
 ### PWA (`verreaux-app`)
 
