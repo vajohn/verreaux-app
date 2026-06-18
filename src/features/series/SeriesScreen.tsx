@@ -23,6 +23,9 @@ import {
 } from '../../db/repos/series.repo';
 import { updateFromSource } from '../sync/updateFromSource';
 import { defaultRunScrape } from '../sync/defaultRunScrape';
+import { runDownload } from '../sync/defaultCatchUp';
+import { isEnrolled } from '../sync/syncCreds';
+import type { CatchUpCandidate } from '../sync/catchUp';
 import { startImport } from '../import/importController';
 import { updateChapterTitle } from '../../db/repos/chapters.repo';
 import { upsertProgress, getProgress, clearSeriesProgress } from '../../db/repos/progress.repo';
@@ -371,6 +374,34 @@ export function SeriesScreen({ seriesId }: SeriesScreenProps) {
   // Update from source
   async function handleUpdateFromSource(): Promise<void> {
     if (!currentSeries) return;
+
+    // Fast path: enrolled devices skip OTP and use runDownload (token-authed, global progress bar).
+    if (isEnrolled()) {
+      if (bgRunning) { setUpdateError('A download is already running.'); setUpdateSheet(false); return; }
+      if (!currentSeries.sourceUrl) return;
+      const last = await db.chapters
+        .where('[seriesId+order]')
+        .between([seriesId, -Infinity], [seriesId, Infinity])
+        .last();
+      const maxKnownOrder = last?.order ?? currentSeries.lastKnownMaxOrder ?? 0;
+      const candidate: CatchUpCandidate = {
+        sourceUrl: currentSeries.sourceUrl,
+        syncedChapter: maxKnownOrder + 1,   // plain update: localMax+1 → latest
+        syncedPage: 0,
+        seriesId,
+        maxOrder: maxKnownOrder,
+        initial: false,                     // no prune, no caughtUp flip
+        state: 'behind',
+      };
+      setUpdateSheet(false);
+      setUpdateOtp('');
+      setUpdateError('');
+      try { await runDownload(candidate, profileId); }
+      catch (e) { setUpdateError(e instanceof Error ? e.message : 'Failed to update from source.'); }
+      return;
+    }
+
+    // Non-enrolled path: existing OTP flow unchanged.
     const otp = updateOtp.trim();
     if (!/^\d{6}$/.test(otp)) {
       setUpdateError('Enter the 6-digit authenticator code.');
@@ -400,6 +431,28 @@ export function SeriesScreen({ seriesId }: SeriesScreenProps) {
       setUpdateError(e instanceof Error ? e.message : 'Failed to update from source.');
     } finally {
       setUpdateSubmitting(false);
+    }
+  }
+
+  // Resume a pending catch-up download
+  async function handleResumeDownload(): Promise<void> {
+    if (bgRunning) return;
+    const pcu = currentSeries.pendingCatchUp;
+    if (!pcu || !currentSeries.sourceUrl) return;
+    const last = await db.chapters.where('[seriesId+order]').between([seriesId, -Infinity], [seriesId, Infinity]).last();
+    const candidate: CatchUpCandidate = {
+      sourceUrl: currentSeries.sourceUrl,
+      syncedChapter: pcu.syncedChapter,
+      syncedPage: pcu.syncedPage,
+      seriesId,
+      maxOrder: last?.order ?? currentSeries.lastKnownMaxOrder ?? 0,
+      initial: !currentSeries.caughtUp,
+      state: last ? 'behind' : 'missing',
+    };
+    try {
+      await runDownload(candidate, profileId);
+    } catch (e) {
+      setUpdateError(e instanceof Error ? e.message : 'Resume failed.');
     }
   }
 
@@ -516,7 +569,21 @@ export function SeriesScreen({ seriesId }: SeriesScreenProps) {
                 {currentChapterId ? 'Continue Reading' : 'Start Reading'}
               </Button>
             )}
+            {currentSeries.pendingCatchUp != null && (
+              <Button
+                variant="ghost"
+                disabled={bgRunning}
+                onClick={() => void handleResumeDownload()}
+              >
+                Resume download
+              </Button>
+            )}
           </div>
+          {updateError && (
+            <div className="type-body" style={{ color: 'var(--color-gold)', marginTop: 8 }}>
+              {updateError}
+            </div>
+          )}
         </div>
       </section>
 
