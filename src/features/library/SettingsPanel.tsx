@@ -6,8 +6,9 @@ import { getApiBase, setApiBase } from '../sync/piClient';
 import { enroll } from '../sync/syncClient';
 import { getSyncCreds, setSyncCreds, clearSyncCreds, isEnrolled } from '../sync/syncCreds';
 import { pullAndReconcile } from '../sync/positionSync';
-import { runCatchUp } from '../sync/defaultCatchUp';
+import { runDownload } from '../sync/defaultCatchUp';
 import type { CatchUpCandidate } from '../sync/catchUp';
+import { useBackgroundStore } from '../background/background.store';
 import { useEscape } from '../../lib/useEscape';
 import { ClearProgressSheet } from './ClearProgressSheet';
 import { OptimizeStorageSheet } from './OptimizeStorageSheet';
@@ -77,7 +78,7 @@ export function SettingsPanel() {
   const [syncBusy, setSyncBusy] = useState(false);
   const [syncNowMsg, setSyncNowMsg] = useState('');
   const [catchUps, setCatchUps] = useState<CatchUpCandidate[]>([]);
-  const [fetching, setFetching] = useState<string | null>(null); // sourceUrl in progress
+  const bgBusy = useBackgroundStore((s) => s.current !== null);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [profilesOpen, setProfilesOpen] = useState(false);
   const [newProfileName, setNewProfileName] = useState('');
@@ -213,15 +214,13 @@ export function SettingsPanel() {
   }
 
   const handleFetchOne = async (c: CatchUpCandidate) => {
-    setFetching(c.sourceUrl);
+    setSyncError('');
     try {
-      await runCatchUp(c, activeProfileId);
+      await runDownload(c, activeProfileId);
       setCatchUps((prev) => prev.filter((x) => x.sourceUrl !== c.sourceUrl));
       await loadLibrary();
     } catch (e) {
       setSyncError(e instanceof Error ? e.message : 'Download failed.');
-    } finally {
-      setFetching(null);
     }
   };
 
@@ -372,13 +371,13 @@ export function SettingsPanel() {
                 {catchUps.map((c) => (
                   <li key={c.sourceUrl}>
                     <span>{c.state === 'missing' ? 'New series' : `Behind — from ch. ${c.syncedChapter}`}</span>
-                    <button disabled={fetching !== null} onClick={() => void handleFetchOne(c)}>
-                      {fetching === c.sourceUrl ? 'Downloading…' : 'Fetch'}
+                    <button disabled={bgBusy} onClick={() => void handleFetchOne(c)}>
+                      {bgBusy ? 'Working…' : 'Fetch'}
                     </button>
                   </li>
                 ))}
               </ul>
-              <button disabled={fetching !== null} onClick={() => void handleFetchAll()}>Fetch all</button>
+              <button disabled={bgBusy} onClick={() => void handleFetchAll()}>Fetch all</button>
             </div>
           )}
         </>
