@@ -30,7 +30,7 @@ it('missing: creates a shell with sourceUrl + slug title + pendingCatchUp, then 
     runImport: async (args) => {
       const sid = args.targetSeriesId!;
       hadPending = (await db.series.get(sid))?.pendingCatchUp != null; // set before import
-      barDuringImport = useBackgroundStore.getState().current; // should be null — slot handed off
+      barDuringImport = useBackgroundStore.getState().current; // slot must stay held during import
       await ch(sid, 49);
     },
   });
@@ -40,7 +40,8 @@ it('missing: creates a shell with sourceUrl + slug title + pendingCatchUp, then 
   expect(s.pendingCatchUp ?? null).toBeNull(); // cleared on success
   expect(s.caughtUp).toBe(true);
   expect(useBackgroundStore.getState().current).toBeNull(); // task finished
-  expect(barDuringImport).toBeNull(); // scrape task finished before import → importBridge can take the slot
+  expect(barDuringImport).not.toBeNull();              // slot stays held → serializes the worker
+  expect((barDuringImport as { kind?: string } | null)?.kind).toBe('sync-download');
 });
 
 it('keeps pendingCatchUp + series shell when the scrape throws (retryable)', async () => {

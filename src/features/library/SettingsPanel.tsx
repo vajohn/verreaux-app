@@ -224,15 +224,11 @@ export function SettingsPanel() {
     }
   };
 
-  const handleFetchAll = async () => {
+  const handleFetchAll = () => {
     const batch = [...catchUps];
     setCatchUps([]); // optimistic; next "Sync now" re-derives from a full pull
-    try {
-      await enqueueLiveDownloads(batch, activeProfileId);
-    } catch (e) {
-      setSyncError(e instanceof Error ? e.message : 'Some downloads failed.');
-    }
-    await loadLibrary();
+    void enqueueLiveDownloads(batch, activeProfileId);
+    void loadLibrary(); // refresh now to show the freshly-created shells
   };
 
   function handleSyncSignOut(): void {

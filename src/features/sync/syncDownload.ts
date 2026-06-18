@@ -77,12 +77,12 @@ export async function runSyncDownload(candidate: CatchUpCandidate, deps: SyncDow
     const outcome = await catchUpRun(resolved, {
       profileId: deps.profileId,
       runScrape: (req) => deps.runScrape(req, onScrapeState),
-      // Hand the bar slot to importBridge when the import begins, so the import
-      // phase shows real chapter progress (importBridge mirrors the import
-      // store, but only when the slot is free). Our scrape task ends here; the
-      // `finally` finish below is then a no-op (finish is id-guarded).
+      // Keep the bar slot HELD across the import (it is the serialization guard
+      // for the single import worker — freeing it here would let a second
+      // download start and terminate this one's worker). Show a static label;
+      // the `finally` finishes the task after the whole operation completes.
       runImport: (args) => {
-        if (bgOwned) useBackgroundStore.getState().finish(taskId);
+        if (bgOwned) useBackgroundStore.getState().update({ subLabel: 'Importing…' });
         return deps.runImport(args);
       },
     });
