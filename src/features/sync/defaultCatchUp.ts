@@ -1,13 +1,13 @@
 import { runSyncDownload, ensureSeriesShell } from './syncDownload';
-import { catchUpScrapeArgs, finalizeCatchUp } from './catchUpRun';
+import { runChunkedCatchUp } from './catchUpRun';
 import { tokenRunScrape } from './defaultRunScrape';
 import { importToCompletion } from '../import/importController';
 import { setPendingCatchUp } from '../../db/repos/series.repo';
-import { enqueueDownloads } from './downloadQueue';
+import { useBackgroundStore } from '../background/background.store';
+import { uuid } from '../../lib/uuid';
 import type { CatchUpCandidate } from './catchUp';
 
-/** Live sync download: series shell + global progress bar + token scrape + real
- *  import worker. The single entry point used by Settings and the series page. */
+/** Live single-series sync download (Settings "Fetch" / series-page Resume). */
 export function runDownload(candidate: CatchUpCandidate, profileId: string): Promise<void> {
   return runSyncDownload(candidate, {
     profileId,
@@ -16,22 +16,33 @@ export function runDownload(candidate: CatchUpCandidate, profileId: string): Pro
   });
 }
 
-/** Enqueue a pipelined batch of live downloads (token scrape + serial import). */
-export function enqueueLiveDownloads(items: CatchUpCandidate[], profileId: string): Promise<void> {
-  return enqueueDownloads(items, {
-    prepare: (c) => ensureSeriesShell(c, profileId),
-    // Scrape-state events are intentionally discarded in the batch path: the
-    // queue shows aggregate "N of M" progress instead of a per-item sub-label.
-    scrape: (c) => tokenRunScrape(() => {})({ url: c.sourceUrl, args: catchUpScrapeArgs(c) }),
-    importBlob: (c, blob) => importToCompletion({
-      file: new File([blob], 'catchup.zip', { type: 'application/zip' }),
-      context: 'series',
-      targetSeriesId: c.seriesId!,        // ensureSeriesShell guarantees a seriesId
-      activeProfileId: profileId,
-    }),
-    finalize: async (c) => {
-      const outcome = await finalizeCatchUp(c, profileId);
-      if (outcome === 'done') await setPendingCatchUp(c.seriesId!, null);
-    },
+/**
+ * Run a batch of catch-ups (Settings "Fetch all" / auto-resume) SERIALLY under
+ * one background task. Each series is a chunked batch loop. Per-series failures
+ * are isolated (the series keeps its pendingCatchUp; the batch continues).
+ */
+export async function enqueueLiveDownloads(items: CatchUpCandidate[], profileId: string): Promise<void> {
+  if (items.length === 0) return;
+  const taskId = `sync-download:${uuid()}`;
+  const owned = useBackgroundStore.getState().start({
+    id: taskId, kind: 'sync-download', label: `Downloading 1 of ${items.length}`, subLabel: '', progress: 0,
   });
+  try {
+    for (let i = 0; i < items.length; i++) {
+      if (owned) useBackgroundStore.getState().update({ label: `Downloading ${i + 1} of ${items.length}`, subLabel: '', progress: i / items.length });
+      try {
+        const resolved = await ensureSeriesShell(items[i]!, profileId);
+        const outcome = await runChunkedCatchUp(resolved, {
+          profileId,
+          runScrape: (req) => tokenRunScrape(() => {})(req),
+          runImport: importToCompletion,
+          onBatch: (n) => { if (owned) useBackgroundStore.getState().update({ subLabel: `Imported ${n} batch${n === 1 ? '' : 'es'}…` }); },
+        });
+        if (outcome === 'done') await setPendingCatchUp(resolved.seriesId!, null);
+      } catch { /* per-series failure isolated — keep pendingCatchUp, continue */ }
+    }
+    if (owned) useBackgroundStore.getState().update({ progress: 1 });
+  } finally {
+    if (owned) useBackgroundStore.getState().finish(taskId);
+  }
 }
