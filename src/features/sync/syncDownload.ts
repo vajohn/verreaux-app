@@ -1,0 +1,78 @@
+import { db } from '../../db/db';
+import { createSeries, setPendingCatchUp } from '../../db/repos/series.repo';
+import { catchUpRun, type CatchUpRunDeps } from './catchUpRun';
+import { titleFromSourceUrl } from './sourceUrlTitle';
+import type { CatchUpCandidate } from './catchUp';
+import { useBackgroundStore } from '../background/background.store';
+import { uuid } from '../../lib/uuid';
+
+export interface SyncDownloadDeps {
+  profileId: string;
+  /** Token-authed scrape → output ZIP blob; reports polled run state via onState. */
+  runScrape: (req: { url: string; args: string }, onState: (s: string) => void) => Promise<Blob>;
+  /** Start an import for the file and resolve when it finishes. */
+  runImport: CatchUpRunDeps['runImport'];
+}
+
+function scrapeSubLabel(state: string): string {
+  if (state === 'succeeded') return 'Preparing import…';
+  if (state === 'failed') return 'Scrape failed';
+  return 'Fetching chapters…';
+}
+
+/**
+ * Create the series shell up-front (so a failed download is retryable from the
+ * series page), track progress in the global background bar, run the catch-up,
+ * and clear `pendingCatchUp` only on a full 'done'. The series shell +
+ * `pendingCatchUp` survive any failure.
+ */
+export async function runSyncDownload(candidate: CatchUpCandidate, deps: SyncDownloadDeps): Promise<void> {
+  // 1. Ensure a series shell with sourceUrl + pendingCatchUp.
+  let seriesId = candidate.seriesId;
+  if (!seriesId) {
+    const existing = (await db.series.where('profileId').equals(deps.profileId).toArray())
+      .find((s) => s.sourceUrl === candidate.sourceUrl);
+    if (existing) seriesId = existing.id;
+    else {
+      const shell = await createSeries({
+        profileId: deps.profileId,
+        title: titleFromSourceUrl(candidate.sourceUrl),
+        coverImageId: null,
+        sourceUrl: candidate.sourceUrl,
+      });
+      seriesId = shell.id;
+    }
+  }
+  await setPendingCatchUp(seriesId, { syncedChapter: candidate.syncedChapter, syncedPage: candidate.syncedPage });
+
+  // Candidate now targets the shell (catchUpRun merges via context 'series').
+  const resolved: CatchUpCandidate = { ...candidate, seriesId };
+
+  // 2. Track in the global single-slot bar (survives navigation).
+  const taskId = `sync-download:${uuid()}`;
+  const title = (await db.series.get(seriesId))?.title ?? 'series';
+  const bgOwned = useBackgroundStore.getState().start({
+    id: taskId, kind: 'sync-download', label: `Downloading ${title}`, subLabel: 'Fetching chapters…', progress: null,
+  });
+
+  try {
+    const onScrapeState = (s: string) => {
+      if (bgOwned) useBackgroundStore.getState().update({ subLabel: scrapeSubLabel(s) });
+    };
+    const outcome = await catchUpRun(resolved, {
+      profileId: deps.profileId,
+      runScrape: (req) => deps.runScrape(req, onScrapeState),
+      // Hand the bar slot to importBridge when the import begins, so the import
+      // phase shows real chapter progress (importBridge mirrors the import
+      // store, but only when the slot is free). Our scrape task ends here; the
+      // `finally` finish below is then a no-op (finish is id-guarded).
+      runImport: (args) => {
+        if (bgOwned) useBackgroundStore.getState().finish(taskId);
+        return deps.runImport(args);
+      },
+    });
+    if (outcome === 'done') await setPendingCatchUp(seriesId, null);
+  } finally {
+    if (bgOwned) useBackgroundStore.getState().finish(taskId);
+  }
+}

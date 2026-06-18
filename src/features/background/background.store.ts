@@ -4,7 +4,8 @@ export type BackgroundTaskKind =
   | 'import'
   | 'delete-series'
   | 'delete-read-chapters'
-  | 'clear-progress';
+  | 'clear-progress'
+  | 'sync-download';
 
 export interface BackgroundTask {
   id: string;
