@@ -115,8 +115,30 @@ Settings → "Fetch" (or series page → "Resume")
 - `onState → bg.update` wiring asserted (scrape progress reflected in the bar).
 - SeriesScreen: "Resume" shown only when `pendingCatchUp` set (component test or logic-level).
 
-## Out of scope (YAGNI / follow-up)
+## Extended scope
 
-- **Service Worker Background Sync** (downloads continuing after the app is closed) — noted as a future item; in-app background only for now.
-- **Parallel downloads** — single-slot serial is intentional (keeps IDB writes serialized).
+These were initially deferred; now in scope, built as later phases on top of the core.
+
+### E. Parallel downloads — a pipelined download queue
+
+The single-slot model is replaced (for sync downloads) by a module-level FIFO **download queue** that **pipelines** rather than truly parallelises: the Pi worker is itself serial (concurrent `POST /scrape` just queue there) and imports must stay serialized on the one import worker + IndexedDB. So the queue keeps **one scrape in flight ahead** of the **serial import lane** — while series A imports, series B can be scraping on the Pi; when both are ready, B imports next.
+
+- The queue owns a **single** `useBackgroundStore` "batch" task ("Downloading 2 of 5 — Solo Leveling"); per-item scrape state and import progress are mirrored into that one task, so the single-slot store and `BackgroundTaskBar` are unchanged. Other ops (manual import/delete) still see the slot as busy → no IDB contention.
+- Imports remain **strictly serial** (the existing import worker; never two ZIPs importing at once).
+- Scrape-ahead concurrency cap = 1 (one Pi job queued ahead; configurable constant). Higher caps add no speedup because the Pi serializes.
+- "Fetch all" enqueues all candidates at once (instead of awaiting each); per-series **failures don't abort the batch** — they're recorded (the series keeps its `pendingCatchUp`) and the queue continues.
+
+### F. Background sync — resume across app close
+
+Built on the durable `pendingCatchUp` markers (the persistent work-list) rather than running the import inside the Service Worker (a SW running the Dexie import pipeline is the deep version; out of scope). Two mechanisms:
+
+1. **Auto-resume on launch.** On app start, enqueue every series with a non-null `pendingCatchUp` into the download queue, so an interrupted download resumes the next time the app opens. Guarded by `isEnrolled()` + a configured Pi base; silent best-effort (failures just leave `pendingCatchUp` for the next launch).
+2. **Background Sync registration.** When a download is pending, register a one-off Background Sync tag (`verreaux-resume-downloads`) via `ServiceWorkerRegistration.sync.register(...)` where supported. The custom SW `sync` handler does **not** run the import; it wakes/focuses an existing client (or shows a notification when permitted) so the in-page queue resumes. Where **Periodic Background Sync** is available and permission granted, register `verreaux-check-updates` to periodically pull positions and surface new catch-ups. Feature-detected; a no-op (relying on auto-resume-on-launch) where unsupported (e.g. iOS Safari).
+
+The PWA build switches from vite-plugin-pwa `generateSW` to **`injectManifest`** with a custom `src/sw.ts` so we can add the `sync`/`periodicsync` handlers while keeping Workbox precaching.
+
+## Out of scope
+
+- **SW-side execution of the import** (scraping + Dexie import running entirely in the Service Worker while the app is closed) — the deep version of background sync; the `pendingCatchUp` queue + auto-resume + Background Sync nudge above deliver most of the value without it.
+- **True N-way parallel imports** — intentionally serialized (IDB write safety).
 - No backend/Pi changes.
