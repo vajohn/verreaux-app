@@ -69,10 +69,11 @@ export async function runSyncDownload(candidate: CatchUpCandidate, deps: SyncDow
   const bgOwned = useBackgroundStore.getState().start({
     id: taskId, kind: 'sync-download', label: `Downloading ${title}`, subLabel: 'Fetching chapters…', progress: null,
   });
+  if (!bgOwned) return;
 
   try {
     const onScrapeState = (s: string) => {
-      if (bgOwned) useBackgroundStore.getState().update({ subLabel: scrapeSubLabel(s) });
+      useBackgroundStore.getState().update({ subLabel: scrapeSubLabel(s) });
     };
     const outcome = await runChunkedCatchUp(resolved, {
       profileId: deps.profileId,
@@ -82,13 +83,13 @@ export async function runSyncDownload(candidate: CatchUpCandidate, deps: SyncDow
       // download start and terminate this one's worker). Show a static label;
       // the `finally` finishes the task after the whole operation completes.
       runImport: (args) => {
-        if (bgOwned) useBackgroundStore.getState().update({ subLabel: 'Importing…' });
+        useBackgroundStore.getState().update({ subLabel: 'Importing…' });
         return deps.runImport(args);
       },
-      onBatch: (n) => { if (bgOwned) useBackgroundStore.getState().update({ subLabel: `Imported ${n} batch${n === 1 ? '' : 'es'}…` }); },
+      onBatch: (n) => { useBackgroundStore.getState().update({ subLabel: `Imported ${n} batch${n === 1 ? '' : 'es'}…` }); },
     });
     if (outcome === 'done') await setPendingCatchUp(seriesId, null);
   } finally {
-    if (bgOwned) useBackgroundStore.getState().finish(taskId);
+    useBackgroundStore.getState().finish(taskId);
   }
 }

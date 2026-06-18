@@ -129,7 +129,7 @@ ctx.addEventListener('message', async (e: MessageEvent<WorkerInMessage>) => {
         logger.error('detect', 'missing target series for chapter update');
         throw new Error('Missing target series for chapter update.');
       }
-      await runChapterMergePipeline(reader, targetSeriesId, activeProfileId, post, cancelToken, logger);
+      await runChapterMergePipeline(reader, targetSeriesId, activeProfileId, post, cancelToken, logger, manifest?.seriesTitle ?? null);
     }
 
     if (cancelToken.cancelled) {

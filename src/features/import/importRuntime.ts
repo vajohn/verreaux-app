@@ -330,6 +330,7 @@ export async function runChapterMergePipeline(
   emit: Emit,
   cancel: CancelToken = { cancelled: false },
   log: WorkerLogger = NULL_LOGGER,
+  manifestSeriesTitle: string | null = null,
 ): Promise<void> {
   const chapters = await walkChapterUpdate(zip);
   log.info('walk', 'walkChapterUpdate done', { chapters: chapters.length });
@@ -339,6 +340,18 @@ export async function runChapterMergePipeline(
 
   const series = await db.series.get(targetSeriesId);
   if (!series) throw new Error('Target series not found.');
+
+  // Adopt the manifest title on the very first import into a fresh shell (a
+  // series created by ensureSeriesShell keeps the URL-slug placeholder title
+  // until real content arrives). Guard strictly on chapterCount === 0 BEFORE
+  // this merge so we never overwrite a series that already has chapters or a
+  // user-supplied title.
+  if (series.chapterCount === 0 && manifestSeriesTitle) {
+    await db.series.update(targetSeriesId, {
+      title: manifestSeriesTitle,
+      normalizedTitle: normalizeTitle(manifestSeriesTitle),
+    });
+  }
 
   // Skip chapter orders that already exist on the target series.
   const existingOrders = new Set<number>();

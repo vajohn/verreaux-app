@@ -27,22 +27,23 @@ export async function enqueueLiveDownloads(items: CatchUpCandidate[], profileId:
   const owned = useBackgroundStore.getState().start({
     id: taskId, kind: 'sync-download', label: `Downloading 1 of ${items.length}`, subLabel: '', progress: 0,
   });
+  if (!owned) return;
   try {
     for (let i = 0; i < items.length; i++) {
-      if (owned) useBackgroundStore.getState().update({ label: `Downloading ${i + 1} of ${items.length}`, subLabel: '', progress: i / items.length });
+      useBackgroundStore.getState().update({ label: `Downloading ${i + 1} of ${items.length}`, subLabel: '', progress: i / items.length });
       try {
         const resolved = await ensureSeriesShell(items[i]!, profileId);
         const outcome = await runChunkedCatchUp(resolved, {
           profileId,
           runScrape: (req) => tokenRunScrape(() => {})(req),
           runImport: importToCompletion,
-          onBatch: (n) => { if (owned) useBackgroundStore.getState().update({ subLabel: `Imported ${n} batch${n === 1 ? '' : 'es'}…` }); },
+          onBatch: (n) => { useBackgroundStore.getState().update({ subLabel: `Imported ${n} batch${n === 1 ? '' : 'es'}…` }); },
         });
         if (outcome === 'done') await setPendingCatchUp(resolved.seriesId!, null);
       } catch { /* per-series failure isolated — keep pendingCatchUp, continue */ }
     }
-    if (owned) useBackgroundStore.getState().update({ progress: 1 });
+    useBackgroundStore.getState().update({ progress: 1 });
   } finally {
-    if (owned) useBackgroundStore.getState().finish(taskId);
+    useBackgroundStore.getState().finish(taskId);
   }
 }

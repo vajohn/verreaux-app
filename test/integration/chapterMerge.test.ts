@@ -4,6 +4,7 @@ import type { ZipReader } from '../../src/lib/zip';
 import { db } from '../../src/db/db';
 import { runNewSeriesPipeline, runChapterMergePipeline } from '../../src/features/import/importRuntime';
 import { detectImportType } from '../../src/features/import/typeDetector';
+import { createSeries, normalizeTitle } from '../../src/db/repos/series.repo';
 
 const PROFILE = 'pf-merge-1';
 
@@ -149,6 +150,39 @@ describe('runChapterMergePipeline (type-3 chapter update)', () => {
 
     const chapters = await db.chapters.where('seriesId').equals(seriesId).toArray();
     expect(chapters).toHaveLength(2);
+  });
+
+  it('adopts manifest seriesTitle when target series has chapterCount === 0 (fresh shell)', async () => {
+    // Create a fresh shell series with chapterCount: 0 and a placeholder title.
+    const shell = await createSeries({ profileId: PROFILE, title: 'Placeholder Slug', coverImageId: null, chapterCount: 0 });
+
+    const updateZip = await buildChapterUpdateZip([1]);
+    // manifestSeriesTitle is the 7th (last) argument; pass undefined for the
+    // optional cancel and log positional slots.
+    await runChapterMergePipeline(updateZip, shell.id, PROFILE, () => {}, undefined, undefined, 'Real Manifest Title');
+
+    const updated = await db.series.get(shell.id);
+    expect(updated!.title).toBe('Real Manifest Title');
+    expect(updated!.normalizedTitle).toBe(normalizeTitle('Real Manifest Title'));
+  });
+
+  it('does NOT adopt manifest seriesTitle when target already has chapters (chapterCount > 0)', async () => {
+    // Import a library ZIP so the series has chapters (chapterCount > 0).
+    const libraryZip = await buildLibraryZip('Established Series', [1, 2]);
+    const libraryType = detectImportType(libraryZip, 'home');
+    await runNewSeriesPipeline(libraryZip, libraryType, PROFILE, () => {});
+
+    const series = await db.series.where('profileId').equals(PROFILE).first();
+    const seriesId = series!.id;
+    const originalTitle = series!.title;
+
+    // Merge with a manifest title — should NOT overwrite because chapterCount > 0.
+    const updateZip = await buildChapterUpdateZip([3]);
+    await runChapterMergePipeline(updateZip, seriesId, PROFILE, () => {}, undefined, undefined, 'Should Not Adopt This');
+
+    const updated = await db.series.get(seriesId);
+    expect(updated!.title).toBe(originalTitle);
+    expect(updated!.normalizedTitle).toBe(normalizeTitle(originalTitle));
   });
 });
 
