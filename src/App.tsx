@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useRoute } from './app/router';
 import { useLibraryStore } from './features/library/library.store';
 import { LibraryScreen } from './features/library/LibraryScreen';
@@ -7,10 +7,13 @@ import { ReaderScreen } from './features/reader/ReaderScreen';
 import { UpdatePrompt } from './ui/UpdatePrompt';
 import { BackgroundTaskBar } from './features/background/BackgroundTaskBar';
 import { startImportBridge } from './features/background/importBridge';
+import { resumePendingDownloads } from './features/sync/resumeDownloads';
+import { enqueueLiveDownloads } from './features/sync/defaultCatchUp';
 
 export function App() {
   const route = useRoute();
   const loadLibrary = useLibraryStore((s) => s.loadLibrary);
+  const activeProfileId = useLibraryStore((s) => s.activeProfileId);
 
   useEffect(() => {
     void loadLibrary();
@@ -25,6 +28,11 @@ export function App() {
   }, []);
 
   useEffect(() => startImportBridge(), []);
+
+  useEffect(() => {
+    if (!activeProfileId) return;
+    void resumePendingDownloads(activeProfileId, (items) => enqueueLiveDownloads(items, activeProfileId));
+  }, [activeProfileId]);
 
   let screen;
   switch (route.screen) {
