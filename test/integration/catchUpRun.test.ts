@@ -26,11 +26,11 @@ it('initial behind catch-up: fetch window, prune below synced, set position, set
   const candidate: CatchUpCandidate = {
     sourceUrl: URL_A, syncedChapter: 49, syncedPage: 2, seriesId: s.id, maxOrder: 30, initial: true, state: 'behind',
   };
-  await catchUpRun(candidate, {
+  expect(await catchUpRun(candidate, {
     profileId: PROFILE,
     runScrape: async (req) => { scraped = req.args; return new Blob(['zip']); },
     runImport: async () => { await ch(s.id, 49); await ch(s.id, 50); }, // window arrives
-  });
+  })).toBe('done');
   expect(scraped).toBe('--from 49 --to latest');
   const orders = (await db.chapters.where('seriesId').equals(s.id).toArray()).map((c) => c.order).sort((a, b) => a - b);
   expect(orders).toEqual([49, 50]); // 1,15,30 pruned
@@ -45,14 +45,14 @@ it('missing catch-up: import creates the series, no prune, caughtUp set', async 
   const candidate: CatchUpCandidate = {
     sourceUrl: URL_A, syncedChapter: 49, syncedPage: 0, seriesId: null, maxOrder: null, initial: true, state: 'missing',
   };
-  await catchUpRun(candidate, {
+  expect(await catchUpRun(candidate, {
     profileId: PROFILE,
     runScrape: async () => new Blob(['zip']),
     runImport: async () => {
       const s = await createSeries({ profileId: PROFILE, title: 'A', coverImageId: null, sourceUrl: URL_A });
       await ch(s.id, 49);
     },
-  });
+  })).toBe('done');
   const s = (await db.series.where('profileId').equals(PROFILE).toArray()).find((x) => x.sourceUrl === URL_A);
   expect(s?.caughtUp).toBe(true);
 });
@@ -80,11 +80,11 @@ it('subsequent (caughtUp) update: fetch from localMax+1, no prune', async () => 
   const candidate: CatchUpCandidate = {
     sourceUrl: URL_A, syncedChapter: 70, syncedPage: 1, seriesId: s.id, maxOrder: 50, initial: false, state: 'behind',
   };
-  await catchUpRun(candidate, {
+  expect(await catchUpRun(candidate, {
     profileId: PROFILE,
     runScrape: async (req) => { scraped = req.args; return new Blob(['zip']); },
     runImport: async () => { await ch(s.id, 70); },
-  });
+  })).toBe('done');
   expect(scraped).toBe('--from 51 --to latest'); // localMax(50)+1
   const orders = (await db.chapters.where('seriesId').equals(s.id).toArray()).map((c) => c.order).sort((a, b) => a - b);
   expect(orders).toEqual([49, 50, 70]); // no prune
@@ -96,11 +96,11 @@ it('initial: synced chapter absent after fetch → no prune, not caughtUp (retry
   const candidate: CatchUpCandidate = {
     sourceUrl: URL_A, syncedChapter: 49, syncedPage: 0, seriesId: s.id, maxOrder: 30, initial: true, state: 'behind',
   };
-  await catchUpRun(candidate, {
+  expect(await catchUpRun(candidate, {
     profileId: PROFILE,
     runScrape: async () => new Blob(['zip']),
     runImport: async () => { await ch(s.id, 50); await ch(s.id, 51); }, // 49 itself never arrived
-  });
+  })).toBe('incomplete');
   const orders = (await db.chapters.where('seriesId').equals(s.id).toArray()).map((c) => c.order).sort((a, b) => a - b);
   expect(orders).toEqual([1, 15, 30, 50, 51]); // NOT pruned
   expect((await db.series.get(s.id))?.caughtUp).toBeFalsy(); // retry next sync
@@ -112,11 +112,11 @@ it('initial: clamps syncedPage to the fetched chapter pageCount', async () => {
   const candidate: CatchUpCandidate = {
     sourceUrl: URL_A, syncedChapter: 49, syncedPage: 10, seriesId: s.id, maxOrder: 30, initial: true, state: 'behind',
   };
-  await catchUpRun(candidate, {
+  expect(await catchUpRun(candidate, {
     profileId: PROFILE,
     runScrape: async () => new Blob(['zip']),
     runImport: async () => { await ch(s.id, 49, 3); }, // pageCount 3
-  });
+  })).toBe('done');
   const prog = await getProgress(PROFILE, s.id);
   expect(prog?.pageIndex).toBe(2); // min(10, 3-1)
 });
@@ -128,11 +128,11 @@ it('subsequent: caughtUp stays true (not re-set), no prune', async () => {
   const candidate: CatchUpCandidate = {
     sourceUrl: URL_A, syncedChapter: 70, syncedPage: 0, seriesId: s.id, maxOrder: 50, initial: false, state: 'behind',
   };
-  await catchUpRun(candidate, {
+  expect(await catchUpRun(candidate, {
     profileId: PROFILE,
     runScrape: async () => new Blob(['zip']),
     runImport: async () => { await ch(s.id, 70); },
-  });
+  })).toBe('done');
   expect((await db.series.get(s.id))?.caughtUp).toBe(true);
   const orders = (await db.chapters.where('seriesId').equals(s.id).toArray()).map((c) => c.order).sort((a, b) => a - b);
   expect(orders).toEqual([49, 50, 70]);

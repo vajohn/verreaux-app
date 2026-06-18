@@ -26,8 +26,13 @@ export interface CatchUpRunDeps {
  * below the synced chapter, set the reading position to the synced page, and
  * mark the series caughtUp. On a SUBSEQUENT update: fetch localMax+1→latest and
  * set the position — no prune. Throws (without pruning) if the fetch fails.
+ *
+ * Returns `'done'` when the run fully completed (prune + position + caughtUp
+ * set, or subsequent update applied). Returns `'incomplete'` when the synced
+ * chapter was absent after the fetch — no prune was done and caughtUp was NOT
+ * set, so the next sync will retry. Never returns on a fetch error (rejects).
  */
-export async function catchUpRun(candidate: CatchUpCandidate, deps: CatchUpRunDeps): Promise<void> {
+export async function catchUpRun(candidate: CatchUpCandidate, deps: CatchUpRunDeps): Promise<'done' | 'incomplete'> {
   const args = candidate.initial
     ? buildScrapeArgs(String(candidate.syncedChapter), 'latest')
     : computeUpdateArgs(candidate.maxOrder);
@@ -64,7 +69,7 @@ export async function catchUpRun(candidate: CatchUpCandidate, deps: CatchUpRunDe
       sourceUrl: candidate.sourceUrl,
       syncedChapter: candidate.syncedChapter,
     });
-    return;
+    return 'incomplete';
   }
 
   // Prune only on the initial catch-up, only after confirming the synced
@@ -88,4 +93,6 @@ export async function catchUpRun(candidate: CatchUpCandidate, deps: CatchUpRunDe
   }
 
   if (candidate.initial) await setCaughtUp(series.id);
+
+  return 'done';
 }
