@@ -3,6 +3,7 @@ import { useLibraryStore } from './library.store';
 import { getAllProfiles, createProfile, renameProfile, deleteProfile } from '../../db/repos/profiles.repo';
 import { exportLibrary } from './exportLibrary';
 import { getApiBase, setApiBase } from '../sync/piClient';
+import { getDownloadBatchSize, setDownloadBatchSize } from '../sync/chunking';
 import { enroll } from '../sync/syncClient';
 import { getSyncCreds, setSyncCreds, clearSyncCreds, isEnrolled } from '../sync/syncCreds';
 import { pullAndReconcile } from '../sync/positionSync';
@@ -67,6 +68,7 @@ export function SettingsPanel() {
   });
   const [exportStatus, setExportStatus] = useState<'idle' | 'exporting' | 'done'>('idle');
   const [piApiBase, setPiApiBase] = useState<string>(() => getApiBase());
+  const [batchSize, setBatchSize] = useState<number>(() => getDownloadBatchSize());
   const [enrolled, setEnrolled] = useState<boolean>(() => isEnrolled());
   const [syncAccountId, setSyncAccountId] = useState<string>(() => getSyncCreds()?.accountId ?? '');
   const [syncUsername, setSyncUsername] = useState('');
@@ -333,6 +335,36 @@ export function SettingsPanel() {
               setApiBase(trimmed);
               // Reflect the normalized (trailing-slash-stripped) value back.
               setPiApiBase(getApiBase());
+            }}
+            style={{ marginTop: 8, width: '100%' }}
+          />
+        </div>
+      </div>
+
+      <div className="settings-row">
+        <div style={{ flex: 1 }}>
+          <span className="type-body">Download batch size (chapters)</span>
+          <div className="type-nav-label" style={{ color: 'var(--color-text-muted)', marginTop: 2 }}>
+            Chapters per batch when downloading a series. Smaller = more reliable on phones; larger = fewer requests.
+          </div>
+          <input
+            className="series-title-input type-body"
+            type="number"
+            min={1}
+            max={50}
+            step={1}
+            value={batchSize}
+            onChange={(e) => {
+              const parsed = parseInt(e.target.value, 10);
+              if (!Number.isNaN(parsed)) {
+                setDownloadBatchSize(parsed);
+                setBatchSize(getDownloadBatchSize());
+              }
+            }}
+            onBlur={(e) => {
+              const parsed = parseInt(e.target.value, 10);
+              setDownloadBatchSize(Number.isNaN(parsed) ? batchSize : parsed);
+              setBatchSize(getDownloadBatchSize());
             }}
             style={{ marginTop: 8, width: '100%' }}
           />
