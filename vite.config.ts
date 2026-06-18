@@ -22,13 +22,11 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'prompt',
-      strategies: 'generateSW',
-      workbox: {
+      strategies: 'injectManifest',
+      srcDir: 'src',
+      filename: 'sw.ts',
+      injectManifest: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
-        navigateFallback: `${BASE}index.html`,
-        navigateFallbackDenylist: [/^\/api/],
-        runtimeCaching: [],
-        cleanupOutdatedCaches: true,
       },
       manifest: {
         name: 'Verreaux',

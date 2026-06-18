@@ -11,7 +11,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
-    "lint:ts": "tsc -p tsconfig.app.json --noEmit",
+    "lint:ts": "tsc -p tsconfig.app.json --noEmit && tsc -p tsconfig.sw.json --noEmit",
     "lint:css": "stylelint \"src/**/*.css\" --max-warnings 0",
     "fixture": "node scripts/build-fixture.mjs"
   },
@@ -41,6 +41,8 @@
     "typescript": "~6.0.2",
     "vite": "^8.0.12",
     "vite-plugin-pwa": "^1.3.0",
-    "vitest": "^4.1.6"
+    "vitest": "^4.1.6",
+    "workbox-precaching": "^7.4.1",
+    "workbox-routing": "^7.4.1"
   }
 }

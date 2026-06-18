@@ -437,6 +437,7 @@ export function SeriesScreen({ seriesId }: SeriesScreenProps) {
   // Resume a pending catch-up download
   async function handleResumeDownload(): Promise<void> {
     if (bgRunning) return;
+    if (!currentSeries) return;
     const pcu = currentSeries.pendingCatchUp;
     if (!pcu || !currentSeries.sourceUrl) return;
     const last = await db.chapters.where('[seriesId+order]').between([seriesId, -Infinity], [seriesId, Infinity]).last();
