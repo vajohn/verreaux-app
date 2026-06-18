@@ -58,3 +58,59 @@ it('does nothing (no task) for an empty enqueue', async () => {
   });
   expect(useBackgroundStore.getState().current).toBeNull();
 });
+
+it('appends to a running batch (same promise, all items processed, single task)', async () => {
+  const finalized: string[] = [];
+  const aImport = deferred<void>();
+  const deps = {
+    prepare: async (c: CatchUpCandidate) => c,
+    scrape: async (c: CatchUpCandidate) => new Blob([c.sourceUrl]),
+    importBlob: async (c: CatchUpCandidate) => { if (c.sourceUrl === 'a') await aImport.promise; },
+    finalize: async (c: CatchUpCandidate) => { finalized.push(c.sourceUrl); },
+  };
+  const p1 = enqueueDownloads([cand('a')], deps);
+  await new Promise((r) => setTimeout(r, 0)); // a reaches its (blocked) import
+  const p2 = enqueueDownloads([cand('b')], deps); // append while running
+  expect(p2).toBe(p1); // same batch promise
+  aImport.resolve();
+  await p1;
+  expect(finalized).toEqual(['a', 'b']); // appended item processed in the same batch
+  expect(useBackgroundStore.getState().current).toBeNull();
+});
+
+it('isolates a finalize throw and continues the batch', async () => {
+  const finalized: string[] = [];
+  await enqueueDownloads([cand('a'), cand('b'), cand('c')], {
+    prepare: async (c: CatchUpCandidate) => c,
+    scrape: async () => new Blob([]),
+    importBlob: async () => {},
+    finalize: async (c: CatchUpCandidate) => { if (c.sourceUrl === 'b') throw new Error('finalize b'); finalized.push(c.sourceUrl); },
+  });
+  expect(finalized).toEqual(['a', 'c']); // b's finalize threw → isolated
+  expect(useBackgroundStore.getState().current).toBeNull();
+});
+
+it('isolates an importBlob throw and continues the batch', async () => {
+  const finalized: string[] = [];
+  await enqueueDownloads([cand('a'), cand('b'), cand('c')], {
+    prepare: async (c: CatchUpCandidate) => c,
+    scrape: async () => new Blob([]),
+    importBlob: async (c: CatchUpCandidate) => { if (c.sourceUrl === 'b') throw new Error('import b'); },
+    finalize: async (c: CatchUpCandidate) => { finalized.push(c.sourceUrl); },
+  });
+  expect(finalized).toEqual(['a', 'c']); // b's import threw → finalize skipped, batch continues
+});
+
+it('reports non-decreasing progress ending at 1', async () => {
+  const progresses: number[] = [];
+  const unsub = useBackgroundStore.subscribe((s) => {
+    if (s.current?.progress != null) progresses.push(s.current.progress);
+  });
+  await enqueueDownloads([cand('a'), cand('b'), cand('c')], {
+    prepare: async (c: CatchUpCandidate) => c, scrape: async () => new Blob([]), importBlob: async () => {}, finalize: async () => {},
+  });
+  unsub();
+  expect(progresses.length).toBeGreaterThan(0);
+  for (let i = 1; i < progresses.length; i++) expect(progresses[i]!).toBeGreaterThanOrEqual(progresses[i - 1]!);
+  expect(progresses[progresses.length - 1]).toBe(1);
+});
