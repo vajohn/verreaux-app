@@ -4,6 +4,7 @@ import { createSeries } from '../../src/db/repos/series.repo';
 import { createChapter } from '../../src/db/repos/chapters.repo';
 import { useBackgroundStore } from '../../src/features/background/background.store';
 import { runSyncDownload } from '../../src/features/sync/syncDownload';
+import { setDownloadBatchSize } from '../../src/features/sync/chunking';
 import type { CatchUpCandidate } from '../../src/features/sync/catchUp';
 
 const PROFILE = 'p-sd';
@@ -12,6 +13,7 @@ beforeEach(async () => {
   await db.delete(); await db.open();
   await db.profiles.add({ id: PROFILE, name: 'T', avatarColor: 'gold', createdAt: Date.now(), lastActiveAt: Date.now() });
   useBackgroundStore.setState({ current: null });
+  setDownloadBatchSize(10);
 });
 afterEach(() => useBackgroundStore.setState({ current: null }));
 
@@ -24,14 +26,22 @@ function missing(): CatchUpCandidate {
 it('missing: creates a shell with sourceUrl + slug title + pendingCatchUp, then clears it on success', async () => {
   let hadPending = false;
   let barDuringImport: unknown = 'unset';
+  // Fake: source has chapters up to 58 (one batch: 49..58), then empty.
+  const LATEST = 58;
   await runSyncDownload(missing(), {
     profileId: PROFILE,
-    runScrape: async () => new Blob(['z']),
+    runScrape: async (req, _onState) => {
+      const m = req.args.match(/--from (\d+) --to (\d+)/)!;
+      const from = Number(m[1]); const to = Number(m[2]);
+      if (from > LATEST) throw new Error('ERR_NO_CHAPTERS_IN_RANGE: No chapters found in range');
+      return new Blob([`${from},${Math.min(to, LATEST)}`]);
+    },
     runImport: async (args) => {
       const sid = args.targetSeriesId!;
       hadPending = (await db.series.get(sid))?.pendingCatchUp != null; // set before import
       barDuringImport = useBackgroundStore.getState().current; // slot must stay held during import
-      await ch(sid, 49);
+      const [f, t] = (await args.file.text()).split(',').map(Number);
+      for (let o = f; o <= t; o++) await ch(sid, o);
     },
   });
   const s = (await db.series.where('profileId').equals(PROFILE).toArray()).find((x) => x.sourceUrl === URL_A)!;
@@ -47,7 +57,7 @@ it('missing: creates a shell with sourceUrl + slug title + pendingCatchUp, then 
 it('keeps pendingCatchUp + series shell when the scrape throws (retryable)', async () => {
   await expect(runSyncDownload(missing(), {
     profileId: PROFILE,
-    runScrape: async () => { throw new Error('scrape failed'); },
+    runScrape: async (_req, _onState) => { throw new Error('scrape failed'); },
     runImport: async () => { throw new Error('no'); },
   })).rejects.toThrow(/scrape failed/);
   const s = (await db.series.where('profileId').equals(PROFILE).toArray()).find((x) => x.sourceUrl === URL_A)!;
@@ -57,10 +67,23 @@ it('keeps pendingCatchUp + series shell when the scrape throws (retryable)', asy
 });
 
 it('incomplete outcome (synced chapter never arrives) keeps pendingCatchUp', async () => {
+  // Source has chapters 50..58 (one batch), but syncedChapter 49 never arrives.
+  const LATEST = 58;
   await runSyncDownload(missing(), {
     profileId: PROFILE,
-    runScrape: async () => new Blob(['z']),
-    runImport: async (args) => { await ch(args.targetSeriesId!, 50); }, // 49 never arrives
+    runScrape: async (req, _onState) => {
+      const m = req.args.match(/--from (\d+) --to (\d+)/)!;
+      const from = Number(m[1]); const to = Number(m[2]);
+      if (from > LATEST) throw new Error('ERR_NO_CHAPTERS_IN_RANGE: No chapters found in range');
+      return new Blob([`${from},${Math.min(to, LATEST)}`]);
+    },
+    runImport: async (args) => {
+      const sid = args.targetSeriesId!;
+      const [f, t] = (await args.file.text()).split(',').map(Number);
+      for (let o = f; o <= t; o++) {
+        if (o !== 49) await ch(sid, o); // 49 (syncedChapter) never arrives
+      }
+    },
   });
   const s = (await db.series.where('profileId').equals(PROFILE).toArray()).find((x) => x.sourceUrl === URL_A)!;
   expect(s.pendingCatchUp).toEqual({ syncedChapter: 49, syncedPage: 0 }); // NOT cleared

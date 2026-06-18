@@ -1,6 +1,6 @@
 import { db } from '../../db/db';
 import { createSeries, setPendingCatchUp } from '../../db/repos/series.repo';
-import { catchUpRun, type CatchUpRunDeps } from './catchUpRun';
+import { runChunkedCatchUp, type CatchUpRunDeps } from './catchUpRun';
 import { titleFromSourceUrl } from './sourceUrlTitle';
 import type { CatchUpCandidate } from './catchUp';
 import { useBackgroundStore } from '../background/background.store';
@@ -48,7 +48,7 @@ export async function ensureSeriesShell(candidate: CatchUpCandidate, profileId: 
   await setPendingCatchUp(seriesId, { syncedChapter: candidate.syncedChapter, syncedPage: candidate.syncedPage });
   void registerResumeSync();
 
-  // Return a candidate that targets the shell (catchUpRun merges via context 'series').
+  // Return a candidate that targets the shell (runChunkedCatchUp merges via context 'series').
   return { ...candidate, seriesId };
 }
 
@@ -74,7 +74,7 @@ export async function runSyncDownload(candidate: CatchUpCandidate, deps: SyncDow
     const onScrapeState = (s: string) => {
       if (bgOwned) useBackgroundStore.getState().update({ subLabel: scrapeSubLabel(s) });
     };
-    const outcome = await catchUpRun(resolved, {
+    const outcome = await runChunkedCatchUp(resolved, {
       profileId: deps.profileId,
       runScrape: (req) => deps.runScrape(req, onScrapeState),
       // Keep the bar slot HELD across the import (it is the serialization guard
@@ -85,6 +85,7 @@ export async function runSyncDownload(candidate: CatchUpCandidate, deps: SyncDow
         if (bgOwned) useBackgroundStore.getState().update({ subLabel: 'Importing…' });
         return deps.runImport(args);
       },
+      onBatch: (n) => { if (bgOwned) useBackgroundStore.getState().update({ subLabel: `Imported ${n} batch${n === 1 ? '' : 'es'}…` }); },
     });
     if (outcome === 'done') await setPendingCatchUp(seriesId, null);
   } finally {
