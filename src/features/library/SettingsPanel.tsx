@@ -6,7 +6,7 @@ import { getApiBase, setApiBase } from '../sync/piClient';
 import { enroll } from '../sync/syncClient';
 import { getSyncCreds, setSyncCreds, clearSyncCreds, isEnrolled } from '../sync/syncCreds';
 import { pullAndReconcile } from '../sync/positionSync';
-import { runDownload } from '../sync/defaultCatchUp';
+import { runDownload, enqueueLiveDownloads } from '../sync/defaultCatchUp';
 import type { CatchUpCandidate } from '../sync/catchUp';
 import { useBackgroundStore } from '../background/background.store';
 import { useEscape } from '../../lib/useEscape';
@@ -225,8 +225,14 @@ export function SettingsPanel() {
   };
 
   const handleFetchAll = async () => {
-    // Serial: the import worker handles one ZIP at a time.
-    for (const c of [...catchUps]) await handleFetchOne(c);
+    const batch = [...catchUps];
+    setCatchUps([]); // optimistic; next "Sync now" re-derives from a full pull
+    try {
+      await enqueueLiveDownloads(batch, activeProfileId);
+    } catch (e) {
+      setSyncError(e instanceof Error ? e.message : 'Some downloads failed.');
+    }
+    await loadLibrary();
   };
 
   function handleSyncSignOut(): void {

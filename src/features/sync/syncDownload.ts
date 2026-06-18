@@ -21,21 +21,22 @@ function scrapeSubLabel(state: string): string {
 }
 
 /**
- * Create the series shell up-front (so a failed download is retryable from the
- * series page), track progress in the global background bar, run the catch-up,
- * and clear `pendingCatchUp` only on a full 'done'. The series shell +
- * `pendingCatchUp` survive any failure.
+ * Ensure a series shell exists for the candidate (create if missing, reuse if
+ * found), set `pendingCatchUp` on it, and return a candidate whose `seriesId`
+ * is guaranteed non-null (pointing at the shell).
+ *
+ * The shell + `pendingCatchUp` survive any downstream failure so the download
+ * is retryable from the series page.
  */
-export async function runSyncDownload(candidate: CatchUpCandidate, deps: SyncDownloadDeps): Promise<void> {
-  // 1. Ensure a series shell with sourceUrl + pendingCatchUp.
+export async function ensureSeriesShell(candidate: CatchUpCandidate, profileId: string): Promise<CatchUpCandidate> {
   let seriesId = candidate.seriesId;
   if (!seriesId) {
-    const existing = (await db.series.where('profileId').equals(deps.profileId).toArray())
+    const existing = (await db.series.where('profileId').equals(profileId).toArray())
       .find((s) => s.sourceUrl === candidate.sourceUrl);
     if (existing) seriesId = existing.id;
     else {
       const shell = await createSeries({
-        profileId: deps.profileId,
+        profileId,
         title: titleFromSourceUrl(candidate.sourceUrl),
         coverImageId: null,
         sourceUrl: candidate.sourceUrl,
@@ -45,8 +46,20 @@ export async function runSyncDownload(candidate: CatchUpCandidate, deps: SyncDow
   }
   await setPendingCatchUp(seriesId, { syncedChapter: candidate.syncedChapter, syncedPage: candidate.syncedPage });
 
-  // Candidate now targets the shell (catchUpRun merges via context 'series').
-  const resolved: CatchUpCandidate = { ...candidate, seriesId };
+  // Return a candidate that targets the shell (catchUpRun merges via context 'series').
+  return { ...candidate, seriesId };
+}
+
+/**
+ * Create the series shell up-front (so a failed download is retryable from the
+ * series page), track progress in the global background bar, run the catch-up,
+ * and clear `pendingCatchUp` only on a full 'done'. The series shell +
+ * `pendingCatchUp` survive any failure.
+ */
+export async function runSyncDownload(candidate: CatchUpCandidate, deps: SyncDownloadDeps): Promise<void> {
+  // 1. Ensure a series shell with sourceUrl + pendingCatchUp.
+  const resolved = await ensureSeriesShell(candidate, deps.profileId);
+  const seriesId = resolved.seriesId!;
 
   // 2. Track in the global single-slot bar (survives navigation).
   const taskId = `sync-download:${uuid()}`;
