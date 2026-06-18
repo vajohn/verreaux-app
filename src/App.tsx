@@ -7,8 +7,9 @@ import { ReaderScreen } from './features/reader/ReaderScreen';
 import { UpdatePrompt } from './ui/UpdatePrompt';
 import { BackgroundTaskBar } from './features/background/BackgroundTaskBar';
 import { startImportBridge } from './features/background/importBridge';
-import { resumePendingDownloads } from './features/sync/resumeDownloads';
+import { resumePendingDownloads, pendingDownloadCandidates } from './features/sync/resumeDownloads';
 import { enqueueLiveDownloads } from './features/sync/defaultCatchUp';
+import { useBackgroundStore } from './features/background/background.store';
 
 export function App() {
   const route = useRoute();
@@ -32,6 +33,19 @@ export function App() {
   useEffect(() => {
     if (!activeProfileId) return;
     void resumePendingDownloads(activeProfileId, (items) => enqueueLiveDownloads(items, activeProfileId));
+  }, [activeProfileId]);
+
+  useEffect(() => {
+    if (!navigator.serviceWorker) return;
+    const onMsg = (e: MessageEvent) => {
+      if ((e.data as { type?: string } | undefined)?.type !== 'RESUME_DOWNLOADS') return;
+      if (!activeProfileId || useBackgroundStore.getState().current) return; // already downloading
+      void pendingDownloadCandidates(activeProfileId).then((items) => {
+        if (items.length) void enqueueLiveDownloads(items, activeProfileId);
+      });
+    };
+    navigator.serviceWorker.addEventListener('message', onMsg);
+    return () => navigator.serviceWorker.removeEventListener('message', onMsg);
   }, [activeProfileId]);
 
   let screen;

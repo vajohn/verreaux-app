@@ -5,6 +5,7 @@ import { titleFromSourceUrl } from './sourceUrlTitle';
 import type { CatchUpCandidate } from './catchUp';
 import { useBackgroundStore } from '../background/background.store';
 import { uuid } from '../../lib/uuid';
+import { registerResumeSync } from './backgroundSync';
 
 export interface SyncDownloadDeps {
   profileId: string;
@@ -45,6 +46,7 @@ export async function ensureSeriesShell(candidate: CatchUpCandidate, profileId: 
     }
   }
   await setPendingCatchUp(seriesId, { syncedChapter: candidate.syncedChapter, syncedPage: candidate.syncedPage });
+  void registerResumeSync();
 
   // Return a candidate that targets the shell (catchUpRun merges via context 'series').
   return { ...candidate, seriesId };

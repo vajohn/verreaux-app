@@ -23,3 +23,19 @@ self.addEventListener('message', (event: ExtendableMessageEvent) => {
     void self.skipWaiting();
   }
 });
+
+// Background Sync handler — nudge a window client to resume interrupted downloads.
+// SyncEvent is not in the standard WebWorker lib; declare it locally.
+interface SyncEvent extends ExtendableEvent { readonly tag: string; }
+
+(self as ServiceWorkerGlobalScope).addEventListener('sync' as unknown as keyof ServiceWorkerGlobalScopeEventMap, ((event: SyncEvent) => {
+  if (event.tag !== 'verreaux-resume-downloads') return;
+  event.waitUntil((async () => {
+    const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    const client = clients[0];
+    if (client) {
+      await client.focus().catch(() => undefined);
+      client.postMessage({ type: 'RESUME_DOWNLOADS' });
+    }
+  })());
+}) as EventListener);
