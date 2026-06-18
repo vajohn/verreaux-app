@@ -29,6 +29,7 @@ export async function createSeries(input: CreateSeriesInput): Promise<Series> {
     coverSource: 'imported',
     sourceUrl: input.sourceUrl ?? null,
     caughtUp: false,
+    pendingCatchUp: null,
     chapterCount: input.chapterCount ?? 0,
     lastReadChapterId: null,
     lastReadAt: null,
@@ -69,6 +70,13 @@ export async function setSourceUrl(id: string, url: string | null): Promise<void
 
 export async function setCaughtUp(seriesId: string): Promise<void> {
   await db.series.update(seriesId, { caughtUp: true });
+}
+
+export async function setPendingCatchUp(
+  seriesId: string,
+  target: { syncedChapter: number; syncedPage: number } | null,
+): Promise<void> {
+  await db.series.update(seriesId, { pendingCatchUp: target });
 }
 
 export async function setLastReadChapter(

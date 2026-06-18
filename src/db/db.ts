@@ -142,6 +142,17 @@ export class VerreauxDB extends Dexie {
           if (s['caughtUp'] === undefined) s['caughtUp'] = false;
         });
     });
+
+    // v7 — `Series.pendingCatchUp`: in-flight/failed catch-up marker. Non-indexed
+    // field; backfill existing rows to null.
+    this.version(7).upgrade(async (tx) => {
+      await tx
+        .table('series')
+        .toCollection()
+        .modify((s: Record<string, unknown>) => {
+          if (s['pendingCatchUp'] === undefined) s['pendingCatchUp'] = null;
+        });
+    });
   }
 }
 

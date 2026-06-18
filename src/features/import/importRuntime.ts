@@ -255,6 +255,7 @@ async function importSeries(
         lastReadChapterOrder: null,
         lastKnownMaxOrder: null,
         caughtUp: false,
+        pendingCatchUp: null,
         importedAt: Date.now(),
         sortOrder: Date.now(),
       });

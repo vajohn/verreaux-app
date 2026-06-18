@@ -53,6 +53,13 @@ export interface Series {
    * no-prune update path. New series and existing rows both default to false.
    */
   caughtUp?: boolean;
+  /**
+   * Durable marker of an in-flight or failed sync catch-up and its target
+   * (chapter order + page). Set when a download starts; cleared on full
+   * success. Drives the series-page "Resume download" affordance and lets a
+   * resume prune correctly. `null`/absent when no catch-up is pending.
+   */
+  pendingCatchUp?: { syncedChapter: number; syncedPage: number } | null;
   sortOrder: number;
 }
 
