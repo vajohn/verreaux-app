@@ -28,6 +28,9 @@ export function SeriesCard({ series, profileId, showTimestamp = false }: SeriesC
     >
       <div className="series-card__cover">
         <CoverImage blobId={blobId} alt={series.title} className="series-card__img" />
+        {series.pendingCatchUp != null && (
+          <span className="series-card__badge">Downloading…</span>
+        )}
       </div>
       <div className="series-card__title type-card-title">{series.title}</div>
       <div className="type-progress-count series-card__count">

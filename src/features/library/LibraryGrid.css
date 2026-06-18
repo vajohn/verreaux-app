@@ -58,6 +58,20 @@
   color: var(--color-text-muted);
 }
 
+.series-card__badge {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: rgba(0, 0, 0, 0.65);
+  color: var(--color-gold);
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+  text-align: center;
+  padding: 4px 6px;
+  pointer-events: none;
+}
+
 .library-grid__draggable {
   cursor: grab;
   touch-action: none;
