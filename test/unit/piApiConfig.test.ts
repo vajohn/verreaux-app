@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import {
   getApiBase, setApiBase,
   getPiApiMode, setPiApiMode, getPiApiUrl, setPiApiUrl,
+  setAutoResolvedTarget,
 } from '../../src/features/sync/piClient';
 
 afterEach(() => localStorage.clear());
@@ -38,4 +39,15 @@ describe('dual Pi API URL', () => {
     expect(getPiApiUrl('local')).toBe('http://pi:8080');
     expect(getApiBase()).toBe('http://pi:8080');
   });
+});
+
+it('auto mode: getApiBase returns the cached resolved slot', () => {
+  setPiApiMode('auto');
+  setPiApiUrl('local', 'http://l');
+  setPiApiUrl('remote', 'https://r');
+  setAutoResolvedTarget('local');
+  expect(getPiApiMode()).toBe('auto');
+  expect(getApiBase()).toBe('http://l');
+  setAutoResolvedTarget('remote');
+  expect(getApiBase()).toBe('https://r');
 });

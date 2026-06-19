@@ -4,7 +4,7 @@ const REMOTE_KEY = 'verreaux:piApiUrl:remote';
 const MODE_KEY = 'verreaux:piApiMode';
 const LEGACY_KEY = 'verreaux:piApiBase';
 
-export type PiApiMode = 'local' | 'remote';
+export type PiApiMode = 'auto' | 'local' | 'remote';
 
 function readKey(key: string): string {
   try { return localStorage.getItem(key) ?? ''; } catch { return ''; }
@@ -26,28 +26,37 @@ function migrateLegacy(): void {
   } catch { /* ignore */ }
 }
 
+let autoResolved: 'local' | 'remote' = 'remote';
+export function setAutoResolvedTarget(t: 'local' | 'remote'): void { autoResolved = t; }
+export function getAutoResolvedTarget(): 'local' | 'remote' { return autoResolved; }
+
 export function getPiApiMode(): PiApiMode {
   migrateLegacy();
-  return readKey(MODE_KEY) === 'local' ? 'local' : 'remote';
+  const stored = readKey(MODE_KEY);
+  if (stored === 'auto' || stored === 'local' || stored === 'remote') return stored;
+  return 'remote';
 }
 export function setPiApiMode(mode: PiApiMode): void {
   try { localStorage.setItem(MODE_KEY, mode); } catch { /* ignore */ }
 }
-export function getPiApiUrl(mode: PiApiMode): string {
+export function getPiApiUrl(mode: 'local' | 'remote'): string {
   migrateLegacy();
   return readKey(mode === 'local' ? LOCAL_KEY : REMOTE_KEY);
 }
-export function setPiApiUrl(mode: PiApiMode, url: string): void {
+export function setPiApiUrl(mode: 'local' | 'remote', url: string): void {
   writeUrl(mode === 'local' ? LOCAL_KEY : REMOTE_KEY, url);
 }
 
 /** The active base URL (active slot). All sync/scrape/download calls use this. */
 export function getApiBase(): string {
-  return getPiApiUrl(getPiApiMode());
+  const mode = getPiApiMode();
+  if (mode === 'auto') return getPiApiUrl(autoResolved);
+  return getPiApiUrl(mode);
 }
 /** Back-compat: write the currently-active slot's URL. */
 export function setApiBase(base: string): void {
-  setPiApiUrl(getPiApiMode(), base);
+  const mode = getPiApiMode();
+  setPiApiUrl(mode === 'auto' ? 'remote' : mode, base);
 }
 
 function requireBase(): string {
