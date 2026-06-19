@@ -1,12 +1,53 @@
 // Thin client for the Pi `api` service.
-const BASE_KEY = 'verreaux:piApiBase';
+const LOCAL_KEY = 'verreaux:piApiUrl:local';
+const REMOTE_KEY = 'verreaux:piApiUrl:remote';
+const MODE_KEY = 'verreaux:piApiMode';
+const LEGACY_KEY = 'verreaux:piApiBase';
 
-export function getApiBase(): string {
-  try { return localStorage.getItem(BASE_KEY) ?? ''; } catch { return ''; }
+export type PiApiMode = 'local' | 'remote';
+
+function readKey(key: string): string {
+  try { return localStorage.getItem(key) ?? ''; } catch { return ''; }
+}
+function writeUrl(key: string, url: string): void {
+  try { localStorage.setItem(key, url.replace(/\/+$/, '')); } catch { /* storage unavailable */ }
 }
 
+/** One-time: copy a pre-existing single URL into the Remote slot (mode remote).
+ *  Idempotent — guarded on the Remote slot being unset; clears the legacy key. */
+function migrateLegacy(): void {
+  try {
+    const legacy = localStorage.getItem(LEGACY_KEY);
+    if (legacy && !localStorage.getItem(REMOTE_KEY)) {
+      localStorage.setItem(REMOTE_KEY, legacy.replace(/\/+$/, ''));
+      if (!localStorage.getItem(MODE_KEY)) localStorage.setItem(MODE_KEY, 'remote');
+      localStorage.removeItem(LEGACY_KEY);
+    }
+  } catch { /* ignore */ }
+}
+
+export function getPiApiMode(): PiApiMode {
+  migrateLegacy();
+  return readKey(MODE_KEY) === 'local' ? 'local' : 'remote';
+}
+export function setPiApiMode(mode: PiApiMode): void {
+  try { localStorage.setItem(MODE_KEY, mode); } catch { /* ignore */ }
+}
+export function getPiApiUrl(mode: PiApiMode): string {
+  migrateLegacy();
+  return readKey(mode === 'local' ? LOCAL_KEY : REMOTE_KEY);
+}
+export function setPiApiUrl(mode: PiApiMode, url: string): void {
+  writeUrl(mode === 'local' ? LOCAL_KEY : REMOTE_KEY, url);
+}
+
+/** The active base URL (active slot). All sync/scrape/download calls use this. */
+export function getApiBase(): string {
+  return getPiApiUrl(getPiApiMode());
+}
+/** Back-compat: write the currently-active slot's URL. */
 export function setApiBase(base: string): void {
-  try { localStorage.setItem(BASE_KEY, base.replace(/\/+$/, '')); } catch { /* storage unavailable */ }
+  setPiApiUrl(getPiApiMode(), base);
 }
 
 function requireBase(): string {
