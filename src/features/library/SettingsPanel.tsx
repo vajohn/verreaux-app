@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useLibraryStore } from './library.store';
 import { getAllProfiles, createProfile, renameProfile, deleteProfile } from '../../db/repos/profiles.repo';
 import { exportLibrary } from './exportLibrary';
-import { getApiBase, setApiBase } from '../sync/piClient';
+import { getApiBase, getPiApiUrl, setPiApiUrl, getPiApiMode, setPiApiMode, type PiApiMode } from '../sync/piClient';
 import { getDownloadBatchSize, setDownloadBatchSize } from '../sync/chunking';
 import { enroll } from '../sync/syncClient';
 import { getSyncCreds, setSyncCreds, clearSyncCreds, isEnrolled } from '../sync/syncCreds';
@@ -67,7 +67,9 @@ export function SettingsPanel() {
     try { return localStorage.getItem('verreaux:compress-on-import') === '1'; } catch { return false; }
   });
   const [exportStatus, setExportStatus] = useState<'idle' | 'exporting' | 'done'>('idle');
-  const [piApiBase, setPiApiBase] = useState<string>(() => getApiBase());
+  const [localUrl, setLocalUrl] = useState<string>(() => getPiApiUrl('local'));
+  const [remoteUrl, setRemoteUrl] = useState<string>(() => getPiApiUrl('remote'));
+  const [apiMode, setApiMode] = useState<PiApiMode>(() => getPiApiMode());
   const [batchSize, setBatchSize] = useState<number>(() => getDownloadBatchSize());
   const [enrolled, setEnrolled] = useState<boolean>(() => isEnrolled());
   const [syncAccountId, setSyncAccountId] = useState<string>(() => getSyncCreds()?.accountId ?? '');
@@ -179,8 +181,6 @@ export function SettingsPanel() {
       setSyncError('Enter the 6-digit authenticator code.');
       return;
     }
-    // Commit the API URL in case it was typed but not yet blurred.
-    if (piApiBase.trim()) setApiBase(piApiBase.trim());
     setSyncError('');
     setSyncSubmitting(true);
     try {
@@ -321,23 +321,43 @@ export function SettingsPanel() {
         <div style={{ flex: 1 }}>
           <span className="type-body">Pi scraper API URL</span>
           <div className="type-nav-label" style={{ color: 'var(--color-text-muted)', marginTop: 2 }}>
-            e.g. http://pajohn.local:8080 or your Tailscale Funnel URL
+            Local = home WiFi (fast); Remote = anywhere (Funnel). Only the selected one is used for sync.
           </div>
+          {/* Local URL */}
+          <label className="type-nav-label" style={{ display: 'block', marginTop: 8 }}>Local</label>
           <input
             className="series-title-input type-body"
             type="url"
             inputMode="url"
-            placeholder="http://pajohn.local:8080"
-            value={piApiBase}
-            onChange={(e) => setPiApiBase(e.target.value)}
-            onBlur={() => {
-              const trimmed = piApiBase.trim();
-              setApiBase(trimmed);
-              // Reflect the normalized (trailing-slash-stripped) value back.
-              setPiApiBase(getApiBase());
-            }}
-            style={{ marginTop: 8, width: '100%' }}
+            placeholder="http://192.168.1.107:8080"
+            value={localUrl}
+            onChange={(e) => { setLocalUrl(e.target.value); setPiApiUrl('local', e.target.value); }}
+            style={{ marginTop: 4, width: '100%' }}
           />
+          {/* Remote URL */}
+          <label className="type-nav-label" style={{ display: 'block', marginTop: 8 }}>Remote</label>
+          <input
+            className="series-title-input type-body"
+            type="url"
+            inputMode="url"
+            placeholder="https://pajohn.tail8f51b4.ts.net"
+            value={remoteUrl}
+            onChange={(e) => { setRemoteUrl(e.target.value); setPiApiUrl('remote', e.target.value); }}
+            style={{ marginTop: 4, width: '100%' }}
+          />
+          {/* Active mode toggle */}
+          <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
+            {(['local', 'remote'] as PiApiMode[]).map((mode) => (
+              <button
+                key={mode}
+                className={`settings-toggle type-button${apiMode === mode ? ' settings-toggle--on' : ''}`}
+                onClick={() => { setApiMode(mode); setPiApiMode(mode); }}
+                aria-pressed={apiMode === mode}
+              >
+                {mode === 'local' ? 'Local' : 'Remote'}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -467,7 +487,7 @@ export function SettingsPanel() {
             <button
               className="settings-toggle settings-toggle--on type-button"
               style={{ marginTop: 8 }}
-              disabled={syncSubmitting || !piApiBase.trim()}
+              disabled={syncSubmitting || !getApiBase().trim()}
               onClick={() => void handleEnroll()}
             >
               {syncSubmitting ? 'Enrolling…' : 'Enroll'}
