@@ -10,6 +10,7 @@ import { startImportBridge } from './features/background/importBridge';
 import { resumePendingDownloads, pendingDownloadCandidates } from './features/sync/resumeDownloads';
 import { enqueueLiveDownloads } from './features/sync/defaultCatchUp';
 import { useBackgroundStore } from './features/background/background.store';
+import { startApiResolver } from './features/sync/apiResolver';
 
 export function App() {
   const route = useRoute();
@@ -29,6 +30,8 @@ export function App() {
   }, []);
 
   useEffect(() => startImportBridge(), []);
+
+  useEffect(() => startApiResolver(), []);
 
   useEffect(() => {
     if (!activeProfileId) return;

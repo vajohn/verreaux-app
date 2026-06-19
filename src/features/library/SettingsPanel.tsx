@@ -2,7 +2,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { useLibraryStore } from './library.store';
 import { getAllProfiles, createProfile, renameProfile, deleteProfile } from '../../db/repos/profiles.repo';
 import { exportLibrary } from './exportLibrary';
-import { getApiBase, getPiApiUrl, setPiApiUrl, getPiApiMode, setPiApiMode, type PiApiMode } from '../sync/piClient';
+import { getApiBase, getPiApiUrl, setPiApiUrl, getPiApiMode, setPiApiMode, getAutoResolvedTarget, type PiApiMode } from '../sync/piClient';
+import { refreshApiTarget } from '../sync/apiResolver';
 import { getDownloadBatchSize, setDownloadBatchSize } from '../sync/chunking';
 import { enroll } from '../sync/syncClient';
 import { getSyncCreds, setSyncCreds, clearSyncCreds, isEnrolled } from '../sync/syncCreds';
@@ -70,6 +71,7 @@ export function SettingsPanel() {
   const [localUrl, setLocalUrl] = useState<string>(() => getPiApiUrl('local'));
   const [remoteUrl, setRemoteUrl] = useState<string>(() => getPiApiUrl('remote'));
   const [apiMode, setApiMode] = useState<PiApiMode>(() => getPiApiMode());
+  const [resolved, setResolved] = useState<'local' | 'remote'>(() => getAutoResolvedTarget());
   const [batchSize, setBatchSize] = useState<number>(() => getDownloadBatchSize());
   const [enrolled, setEnrolled] = useState<boolean>(() => isEnrolled());
   const [syncAccountId, setSyncAccountId] = useState<string>(() => getSyncCreds()?.accountId ?? '');
@@ -122,6 +124,10 @@ export function SettingsPanel() {
     window.addEventListener('storage', onStorage);
     return () => window.removeEventListener('storage', onStorage);
   }, []);
+
+  useEffect(() => {
+    if (apiMode === 'auto') void refreshApiTarget().then(() => setResolved(getAutoResolvedTarget()));
+  }, [apiMode]);
 
   async function loadProfiles(): Promise<void> {
     const ps = await getAllProfiles();
@@ -321,7 +327,7 @@ export function SettingsPanel() {
         <div style={{ flex: 1 }}>
           <span className="type-body">Pi scraper API URL</span>
           <div className="type-nav-label" style={{ color: 'var(--color-text-muted)', marginTop: 2 }}>
-            Local = home WiFi (fast); Remote = anywhere (Funnel). Only the selected one is used for sync.
+            Auto uses Local when it&apos;s reachable (home), else Remote. Local/Remote force one.
           </div>
           {/* Local URL */}
           <label className="type-nav-label" style={{ display: 'block', marginTop: 8 }}>Local</label>
@@ -347,17 +353,22 @@ export function SettingsPanel() {
           />
           {/* Active mode toggle */}
           <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
-            {(['local', 'remote'] as PiApiMode[]).map((mode) => (
+            {(['auto', 'local', 'remote'] as PiApiMode[]).map((mode) => (
               <button
                 key={mode}
                 className={`settings-toggle type-button${apiMode === mode ? ' settings-toggle--on' : ''}`}
                 onClick={() => { setApiMode(mode); setPiApiMode(mode); }}
                 aria-pressed={apiMode === mode}
               >
-                {mode === 'local' ? 'Local' : 'Remote'}
+                {mode === 'auto' ? 'Auto' : mode === 'local' ? 'Local' : 'Remote'}
               </button>
             ))}
           </div>
+          {apiMode === 'auto' && (
+            <div className="type-nav-label" style={{ color: 'var(--color-text-muted)', marginTop: 4 }}>
+              Auto → {resolved === 'local' ? 'Local' : 'Remote'}
+            </div>
+          )}
         </div>
       </div>
 
