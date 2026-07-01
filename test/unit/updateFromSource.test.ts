@@ -5,7 +5,7 @@ describe('updateFromSource', () => {
   it('scrapes only new chapters and merges into the target series', async () => {
     const startImport = vi.fn();
     const deps = {
-      runScrape: vi.fn(async () => new Blob(['zip'], { type: 'application/zip' })),
+      runScrape: vi.fn(async () => ({ blob: new Blob(['zip'], { type: 'application/zip' }), partial: false })),
       startImport,
       activeProfileId: 'p1',
     };

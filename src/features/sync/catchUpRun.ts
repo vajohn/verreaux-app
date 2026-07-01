@@ -7,7 +7,7 @@ import { getDownloadBatchSize, isEndOfSeriesError } from './chunking';
 
 export interface CatchUpRunDeps {
   profileId: string;
-  runScrape: (req: { url: string; args: string }) => Promise<Blob>;
+  runScrape: (req: { url: string; args: string }) => Promise<{ blob: Blob; partial: boolean }>;
   runImport: (args: { file: File; context: ImportContext; targetSeriesId?: string; activeProfileId: string }) => Promise<void>;
   /** Called after each batch imports, with the running batch count (progress UI). */
   onBatch?: (batchesImported: number) => void | Promise<void>;
@@ -54,15 +54,18 @@ async function pruneAndPositionIfSyncedPresent(seriesId: string, candidate: Catc
  * INITIAL catch-up, the first batch with the synced chapter present prunes below
  * it and sets the reading position (only advancing it, never regressing);
  * `caughtUp` is set only when the window ends. Returns 'incomplete' if the synced
- * chapter never arrived (no prune, not caughtUp — retryable). A non-terminator
- * scrape error rejects (resumable).
+ * chapter never arrived (no prune, not caughtUp — retryable). Returns 'partial'
+ * if a batch came back rate-limited: its salvaged chapters are imported (so
+ * localMax advances), but the loop stops and `caughtUp` is NOT set, so the next
+ * Resume continues from the new high-water mark. A non-terminator scrape error
+ * rejects (resumable).
  *
  * Requires the series to exist already — callers create the shell (with sourceUrl)
  * via ensureSeriesShell first, so candidate.seriesId is set and the first batch
  * imports with context 'series' into that (possibly empty) shell. A 'missing'
  * candidate that has passed through ensureSeriesShell carries the shell's seriesId.
  */
-export async function runChunkedCatchUp(candidate: CatchUpCandidate, deps: CatchUpRunDeps): Promise<'done' | 'incomplete'> {
+export async function runChunkedCatchUp(candidate: CatchUpCandidate, deps: CatchUpRunDeps): Promise<'done' | 'incomplete' | 'partial'> {
   const seriesId = await resolveSeriesId(candidate, deps.profileId);
   const n = getDownloadBatchSize();
   const windowStart = candidate.initial ? candidate.syncedChapter : (candidate.maxOrder ?? 0) + 1;
@@ -73,8 +76,9 @@ export async function runChunkedCatchUp(candidate: CatchUpCandidate, deps: Catch
   for (;;) {
     const to = from + n - 1;
     let blob: Blob;
+    let partial: boolean;
     try {
-      blob = await deps.runScrape({ url: candidate.sourceUrl, args: `--from ${from} --to ${to}` });
+      ({ blob, partial } = await deps.runScrape({ url: candidate.sourceUrl, args: `--from ${from} --to ${to}` }));
     } catch (e) {
       if (isEndOfSeriesError(e)) break;   // no chapters in range → end of series
       throw e;                             // genuine failure → abort (resumable)
@@ -89,6 +93,10 @@ export async function runChunkedCatchUp(candidate: CatchUpCandidate, deps: Catch
       positioned = await pruneAndPositionIfSyncedPresent(seriesId, candidate, deps.profileId);
     }
     await deps.onBatch?.(imported);
+    // Rate-limited: the salvaged chapters are imported (localMax advanced) but
+    // the window is not complete. Stop WITHOUT setting caughtUp so the series
+    // stays resumable and the next Resume continues from the new localMax+1.
+    if (partial) return 'partial';
   }
 
   if (candidate.initial && !positioned) return 'incomplete';

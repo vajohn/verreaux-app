@@ -9,8 +9,9 @@ import { registerResumeSync } from './backgroundSync';
 
 export interface SyncDownloadDeps {
   profileId: string;
-  /** Token-authed scrape → output ZIP blob; reports polled run state via onState. */
-  runScrape: (req: { url: string; args: string }, onState: (s: string) => void) => Promise<Blob>;
+  /** Token-authed scrape → { blob, partial }; reports polled run state via onState.
+   *  `partial` is true for a rate-limited run that salvaged some chapters. */
+  runScrape: (req: { url: string; args: string }, onState: (s: string) => void) => Promise<{ blob: Blob; partial: boolean }>;
   /** Start an import for the file and resolve when it finishes. */
   runImport: CatchUpRunDeps['runImport'];
 }

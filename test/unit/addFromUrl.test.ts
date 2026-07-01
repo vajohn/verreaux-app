@@ -5,7 +5,7 @@ describe('addFromUrl', () => {
   it('scrapes the full range and imports the zip as a new series', async () => {
     const startImport = vi.fn();
     const deps = {
-      runScrape: vi.fn(async () => new Blob(['zip'], { type: 'application/zip' })),
+      runScrape: vi.fn(async () => ({ blob: new Blob(['zip'], { type: 'application/zip' }), partial: false })),
       startImport,
       activeProfileId: 'p1',
     };
@@ -21,7 +21,7 @@ describe('addFromUrl', () => {
   it('passes an explicit from/to range through to the scraper', async () => {
     const startImport = vi.fn();
     const deps = {
-      runScrape: vi.fn(async () => new Blob(['zip'], { type: 'application/zip' })),
+      runScrape: vi.fn(async () => ({ blob: new Blob(['zip'], { type: 'application/zip' }), partial: false })),
       startImport,
       activeProfileId: 'p1',
     };
