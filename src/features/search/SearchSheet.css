@@ -1,0 +1,80 @@
+/* SearchSheet — reuses .confirm-sheet, .confirm-sheet__inner, .confirm-sheet__actions,
+   .series-title-input, and Button styles; only adds what is specific to the search sheet. */
+
+.search-sheet__row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.search-sheet__input {
+  flex: 1;
+  /* Inherits all .series-title-input styles; no extra border-radius */
+}
+
+.search-sheet__error {
+  color: var(--color-gold);
+}
+
+.search-sheet__partial-errors {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.search-sheet__partial-error {
+  opacity: 0.7;
+  font-size: 0.85em;
+}
+
+.search-sheet__empty {
+  opacity: 0.6;
+}
+
+.search-sheet__results {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  max-height: 60vh;
+  overflow-y: auto;
+  border: 1px solid var(--color-ash);
+}
+
+.search-sheet__result-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--color-obsidian);
+  border: 0;
+  border-bottom: 1px solid var(--color-ash);
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  color: var(--color-text-secondary);
+}
+
+.search-sheet__result-row:last-child {
+  border-bottom: 0;
+}
+
+.search-sheet__result-row:hover,
+.search-sheet__result-row:focus-visible {
+  background: var(--color-charcoal);
+  color: var(--color-text);
+}
+
+.search-sheet__result-title {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search-sheet__result-badge {
+  font-size: 0.8em;
+  opacity: 0.65;
+  white-space: nowrap;
+  color: var(--color-gold-bright);
+}

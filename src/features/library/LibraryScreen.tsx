@@ -16,6 +16,7 @@ import { defaultRunScrape, tokenRunScrape } from '../sync/defaultRunScrape';
 import { validateAddFromUrlInput } from '../sync/addFromUrlInput';
 import { isEnrolled } from '../sync/syncCreds';
 import { startImport } from '../import/importController';
+import { SearchSheet } from '../search/SearchSheet';
 import './LibraryScreen.css';
 
 export function LibraryScreen() {
@@ -26,6 +27,9 @@ export function LibraryScreen() {
   const loadLibrary = useLibraryStore((s) => s.loadLibrary);
   const librarySort = useLibraryStore((s) => s.librarySort);
   const importState = useImportStore((s) => s.state);
+
+  // Search sheet state
+  const [searchSheet, setSearchSheet] = useState(false);
 
   // Add-from-URL sheet state
   const [addUrlSheet, setAddUrlSheet] = useState(false);
@@ -154,10 +158,19 @@ export function LibraryScreen() {
             <LibraryGrid series={filtered} profileId={profileId} />
             <div style={{ height: 24 }} />
             <ImportZone context="home" />
-            <div style={{ display: 'flex', justifyContent: 'center', marginTop: 12 }}>
+            <div style={{ display: 'flex', justifyContent: 'center', marginTop: 12, gap: 8 }}>
               <Button variant="ghost" onClick={() => { setAddUrlError(''); setAddUrlInput(''); setAddOtpInput(''); setAddFromInput(''); setAddToInput(''); setAddUrlSheet(true); }}>
                 Add from URL
               </Button>
+              {isEnrolled() ? (
+                <Button variant="ghost" onClick={() => setSearchSheet(true)}>
+                  Search sources
+                </Button>
+              ) : (
+                <Button variant="ghost" disabled title="Enrol this device to search online">
+                  Search sources
+                </Button>
+              )}
             </div>
           </>
         )}
@@ -184,10 +197,19 @@ export function LibraryScreen() {
               <span className="section-line" />
             </div>
             <ImportZone context="home" />
-            <div style={{ display: 'flex', justifyContent: 'center', marginTop: 12 }}>
+            <div style={{ display: 'flex', justifyContent: 'center', marginTop: 12, gap: 8 }}>
               <Button variant="ghost" onClick={() => { setAddUrlError(''); setAddUrlInput(''); setAddOtpInput(''); setAddFromInput(''); setAddToInput(''); setAddUrlSheet(true); }}>
                 Add from URL
               </Button>
+              {isEnrolled() ? (
+                <Button variant="ghost" onClick={() => setSearchSheet(true)}>
+                  Search sources
+                </Button>
+              ) : (
+                <Button variant="ghost" disabled title="Enrol this device to search online">
+                  Search sources
+                </Button>
+              )}
             </div>
           </>
         )}
@@ -202,6 +224,16 @@ export function LibraryScreen() {
           </>
         )}
       </main>
+
+      {searchSheet && (
+        <SearchSheet
+          onClose={() => setSearchSheet(false)}
+          onSelect={(url) => {
+            setSearchSheet(false);
+            void addFromUrl({ url, otp: '' }, { runScrape: tokenRunScrape(() => {}), startImport, activeProfileId: profileId });
+          }}
+        />
+      )}
 
       {addUrlSheet && (
         <div className="confirm-sheet" role="dialog" aria-modal="true">
