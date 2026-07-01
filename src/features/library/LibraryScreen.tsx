@@ -17,6 +17,8 @@ import { validateAddFromUrlInput } from '../sync/addFromUrlInput';
 import { isEnrolled } from '../sync/syncCreds';
 import { startImport } from '../import/importController';
 import { SearchSheet } from '../search/SearchSheet';
+import { runDownload } from '../sync/defaultCatchUp';
+import { buildInitialAddCandidate } from '../sync/addCandidate';
 import './LibraryScreen.css';
 
 export function LibraryScreen() {
@@ -66,6 +68,12 @@ export function LibraryScreen() {
       return;
     }
     const { url, otp, from, to } = result;
+    const fullSeries = !from && !to;   // no custom range
+    if (enrolled && fullSeries) {
+      setAddUrlSheet(false); setAddUrlInput(''); setAddOtpInput(''); setAddFromInput(''); setAddToInput('');
+      void runDownload(buildInitialAddCandidate(url), profileId);
+      return;
+    }
     setAddUrlSubmitting(true);
     setAddUrlError('');
     try {
@@ -230,7 +238,7 @@ export function LibraryScreen() {
           onClose={() => setSearchSheet(false)}
           onSelect={(url) => {
             setSearchSheet(false);
-            void addFromUrl({ url, otp: '' }, { runScrape: tokenRunScrape(() => {}), startImport, activeProfileId: profileId });
+            void runDownload(buildInitialAddCandidate(url), profileId);
           }}
         />
       )}
