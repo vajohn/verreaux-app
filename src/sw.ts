@@ -39,3 +39,31 @@ interface SyncEvent extends ExtendableEvent { readonly tag: string; }
     }
   })());
 }) as EventListener);
+
+// Push notification handler — payload: { type: 'new-series', sourceUrl }.
+(self as ServiceWorkerGlobalScope).addEventListener('push', ((event: PushEvent) => {
+  let sourceUrl = '';
+  try {
+    const data = event.data?.json() as { type?: string; sourceUrl?: string } | undefined;
+    sourceUrl = data?.sourceUrl ?? '';
+  } catch { /* non-JSON payload — ignore */ }
+  const slug = sourceUrl.split('/').filter(Boolean).pop()?.replace(/[-_]+/g, ' ') ?? '';
+  event.waitUntil(
+    (self as ServiceWorkerGlobalScope).registration.showNotification('New series available', {
+      body: slug ? `Tap to download "${slug}"` : 'A new series is ready to sync.',
+      tag: 'verreaux-new-series',
+      data: { sourceUrl },
+    }),
+  );
+}) as EventListener);
+
+// Notification click handler — focus an existing app window or open one.
+(self as ServiceWorkerGlobalScope).addEventListener('notificationclick', ((event: NotificationEvent) => {
+  event.notification.close();
+  event.waitUntil((async () => {
+    const sw = self as ServiceWorkerGlobalScope;
+    const all = await sw.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    const existing = all.find((c) => 'focus' in c) as WindowClient | undefined;
+    if (existing) { await existing.focus(); } else { await sw.clients.openWindow('/'); }
+  })());
+}) as EventListener);
