@@ -1,4 +1,5 @@
 // Thin client for the Pi `api` service.
+import { getSyncCreds } from './syncCreds';
 const LOCAL_KEY = 'verreaux:piApiUrl:local';
 const REMOTE_KEY = 'verreaux:piApiUrl:remote';
 const MODE_KEY = 'verreaux:piApiMode';
@@ -104,4 +105,30 @@ export async function getRunZip(id: string): Promise<Blob> {
   const res = await fetch(`${requireBase()}/runs/${encodeURIComponent(id)}/output.zip`);
   if (!res.ok) throw new Error(`Could not download output (${res.status}).`);
   return res.blob();
+}
+
+export interface SearchSourceInfo { id: string; name: string; host: string; searchable: boolean; }
+export interface SeriesSearchHit {
+  adapterId: string; title: string; seriesUrl: string;
+  coverUrl: string | null; coverReferer?: string; latestChapter?: string | null;
+}
+export interface SearchResponse { results: SeriesSearchHit[]; errors: Array<{ adapterId: string; error: string }>; }
+
+export async function listSearchSources(): Promise<SearchSourceInfo[]> {
+  const res = await fetch(`${requireBase()}/adapters`);
+  if (!res.ok) throw new Error(`Could not load sources (${res.status}).`);
+  return ((await res.json()) as { adapters: SearchSourceInfo[] }).adapters;
+}
+
+export async function searchSeries(q: string, sources?: string[]): Promise<SearchResponse> {
+  const creds = getSyncCreds();
+  if (!creds) throw new Error('This device is not enrolled for sync — enroll to search online.');
+  const res = await fetch(`${requireBase()}/search`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${creds.deviceToken}` },
+    body: JSON.stringify(sources && sources.length ? { q, sources } : { q }),
+  });
+  if (res.status === 401) throw new Error('Search authorization failed — re-enrol this device.');
+  if (!res.ok) throw new Error(`Search failed (${res.status}).`);
+  return (await res.json()) as SearchResponse;
 }

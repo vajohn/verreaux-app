@@ -2,8 +2,9 @@ import { useCallback, useEffect, useState } from 'react';
 import { useLibraryStore } from './library.store';
 import { getAllProfiles, createProfile, renameProfile, deleteProfile } from '../../db/repos/profiles.repo';
 import { exportLibrary } from './exportLibrary';
-import { getApiBase, getPiApiUrl, setPiApiUrl, getPiApiMode, setPiApiMode, getAutoResolvedTarget, type PiApiMode } from '../sync/piClient';
+import { getApiBase, getPiApiUrl, setPiApiUrl, getPiApiMode, setPiApiMode, getAutoResolvedTarget, listSearchSources, type PiApiMode, type SearchSourceInfo } from '../sync/piClient';
 import { refreshApiTarget } from '../sync/apiResolver';
+import { setSourceEnabled, getEnabledSources } from '../search/searchSources';
 import { getDownloadBatchSize, setDownloadBatchSize } from '../sync/chunking';
 import { enroll } from '../sync/syncClient';
 import { getSyncCreds, setSyncCreds, clearSyncCreds, isEnrolled } from '../sync/syncCreds';
@@ -96,6 +97,10 @@ export function SettingsPanel() {
   const [clearProgressOpen, setClearProgressOpen] = useState(false);
   const [optimizeOpen, setOptimizeOpen] = useState(false);
   const [debugOpen, setDebugOpen] = useState(false);
+  const [searchSources, setSearchSources] = useState<SearchSourceInfo[]>([]);
+  const [searchSourcesError, setSearchSourcesError] = useState<string | null>(null);
+  // Mirror enabled state locally so toggles update immediately without re-fetching.
+  const [enabledSourceIds, setEnabledSourceIds] = useState<Set<string>>(() => new Set());
 
   const handleEscape = useCallback(() => {
     if (debugOpen) { setDebugOpen(false); return; }
@@ -128,6 +133,27 @@ export function SettingsPanel() {
   useEffect(() => {
     if (apiMode === 'auto') void refreshApiTarget().then(() => setResolved(getAutoResolvedTarget()));
   }, [apiMode]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadSources(): Promise<void> {
+      try {
+        const sources = await listSearchSources();
+        if (cancelled) return;
+        setSearchSources(sources);
+        setSearchSourcesError(null);
+        // Seed local enabled-state mirror from persisted prefs.
+        const allIds = sources.map((s) => s.id);
+        const enabled = getEnabledSources(allIds);
+        setEnabledSourceIds(new Set(enabled));
+      } catch {
+        if (cancelled) return;
+        setSearchSourcesError('Sources unavailable (Pi not reachable)');
+      }
+    }
+    void loadSources();
+    return () => { cancelled = true; };
+  }, []);
 
   async function loadProfiles(): Promise<void> {
     const ps = await getAllProfiles();
@@ -505,6 +531,61 @@ export function SettingsPanel() {
             </button>
           </div>
         </div>
+      )}
+
+      {/* Search sources */}
+      <div className="type-section-label settings-section">Search sources</div>
+      {searchSourcesError ? (
+        <div className="settings-row">
+          <span className="type-nav-label" style={{ color: 'var(--color-gold)' }}>
+            {searchSourcesError}
+          </span>
+        </div>
+      ) : searchSources.length === 0 ? (
+        <div className="settings-row">
+          <span className="type-nav-label" style={{ color: 'var(--color-text-muted)' }}>
+            Loading…
+          </span>
+        </div>
+      ) : (
+        searchSources.map((source) => {
+          const enabled = enabledSourceIds.has(source.id);
+          return (
+            <div className="settings-row" key={source.id}>
+              <div style={{ flex: 1 }}>
+                <span
+                  className="type-body"
+                  style={source.searchable ? undefined : { opacity: 0.45 }}
+                >
+                  {source.name}
+                </span>
+                {!source.searchable && (
+                  <div className="type-nav-label" style={{ color: 'var(--color-text-muted)', marginTop: 2 }}>
+                    search not supported
+                  </div>
+                )}
+              </div>
+              <button
+                className={`settings-toggle type-button${enabled && source.searchable ? ' settings-toggle--on' : ''}`}
+                disabled={!source.searchable}
+                aria-pressed={enabled && source.searchable}
+                style={source.searchable ? undefined : { opacity: 0.45 }}
+                onClick={() => {
+                  if (!source.searchable) return;
+                  const next = !enabled;
+                  setSourceEnabled(source.id, next);
+                  setEnabledSourceIds((prev) => {
+                    const updated = new Set(prev);
+                    if (next) updated.add(source.id); else updated.delete(source.id);
+                    return updated;
+                  });
+                }}
+              >
+                {source.searchable ? (enabled ? 'ON' : 'OFF') : 'OFF'}
+              </button>
+            </div>
+          );
+        })
       )}
 
       {/* Export */}
