@@ -4,8 +4,8 @@ import { getDownloadBatchSize, setDownloadBatchSize, isEndOfSeriesError } from '
 afterEach(() => localStorage.clear());
 
 describe('getDownloadBatchSize', () => {
-  it('defaults to 10 and round-trips a clamped value', () => {
-    expect(getDownloadBatchSize()).toBe(10);
+  it('defaults to 5 and round-trips a clamped value', () => {
+    expect(getDownloadBatchSize()).toBe(5);
     setDownloadBatchSize(20);
     expect(getDownloadBatchSize()).toBe(20);
     setDownloadBatchSize(999);
@@ -13,9 +13,9 @@ describe('getDownloadBatchSize', () => {
     setDownloadBatchSize(0);
     expect(getDownloadBatchSize()).toBe(1);  // clamped to min
   });
-  it('falls back to 10 on a garbage stored value', () => {
+  it('falls back to 5 on a garbage stored value', () => {
     localStorage.setItem('verreaux:downloadBatchSize', 'abc');
-    expect(getDownloadBatchSize()).toBe(10);
+    expect(getDownloadBatchSize()).toBe(5);
   });
 });
 

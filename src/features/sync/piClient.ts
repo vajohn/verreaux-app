@@ -93,6 +93,10 @@ export interface RunStatus {
   state: 'running' | 'succeeded' | 'failed';
   exitCode?: number | null;
   message?: string | null;
+  /** True when the run stopped early (e.g. rate-limited) but salvaged some output. */
+  partial?: boolean;
+  /** True when the run produced a downloadable output.zip (even on a failed/partial run). */
+  hasOutput?: boolean;
 }
 
 export async function getRunStatus(id: string): Promise<RunStatus> {

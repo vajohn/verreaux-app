@@ -34,7 +34,7 @@ it('missing: creates a shell with sourceUrl + slug title + pendingCatchUp, then 
       const m = req.args.match(/--from (\d+) --to (\d+)/)!;
       const from = Number(m[1]); const to = Number(m[2]);
       if (from > LATEST) throw new Error('ERR_NO_CHAPTERS_IN_RANGE: No chapters found in range');
-      return new Blob([`${from},${Math.min(to, LATEST)}`]);
+      return { blob: new Blob([`${from},${Math.min(to, LATEST)}`]), partial: false };
     },
     runImport: async (args) => {
       const sid = args.targetSeriesId!;
@@ -66,6 +66,24 @@ it('keeps pendingCatchUp + series shell when the scrape throws (retryable)', asy
   expect(useBackgroundStore.getState().current).toBeNull(); // bar released even on failure
 });
 
+it('partial (rate-limited) batch imports what arrived and keeps pendingCatchUp for resume', async () => {
+  await runSyncDownload(missing(), {
+    profileId: PROFILE,
+    // Rate-limited: the run comes back partial with chapters 49..52.
+    runScrape: async (_req, _onState) => ({ blob: new Blob(['49,52']), partial: true }),
+    runImport: async (args) => {
+      const sid = args.targetSeriesId!;
+      const [f, t] = (await args.file.text()).split(',').map(Number);
+      for (let o = f; o <= t; o++) await ch(sid, o);
+    },
+  });
+  const s = (await db.series.where('profileId').equals(PROFILE).toArray()).find((x) => x.sourceUrl === URL_A)!;
+  const chapters = (await db.chapters.where('seriesId').equals(s.id).toArray()).map((c) => c.order).sort((a, b) => a - b);
+  expect(chapters).toEqual([49, 50, 51, 52]); // partial imported
+  expect(s.pendingCatchUp).toEqual({ syncedChapter: 49, syncedPage: 0 }); // NOT cleared → resumable
+  expect(s.caughtUp ?? false).toBe(false);
+});
+
 it('incomplete outcome (synced chapter never arrives) keeps pendingCatchUp', async () => {
   // Source has chapters 50..58 (one batch), but syncedChapter 49 never arrives.
   const LATEST = 58;
@@ -75,7 +93,7 @@ it('incomplete outcome (synced chapter never arrives) keeps pendingCatchUp', asy
       const m = req.args.match(/--from (\d+) --to (\d+)/)!;
       const from = Number(m[1]); const to = Number(m[2]);
       if (from > LATEST) throw new Error('ERR_NO_CHAPTERS_IN_RANGE: No chapters found in range');
-      return new Blob([`${from},${Math.min(to, LATEST)}`]);
+      return { blob: new Blob([`${from},${Math.min(to, LATEST)}`]), partial: false };
     },
     runImport: async (args) => {
       const sid = args.targetSeriesId!;

@@ -30,7 +30,7 @@ function fakeDeps(sid: string, LATEST: number, calls: string[]) {
       const m = args.match(/--from (\d+) --to (\d+)/)!;
       const from = Number(m[1]); const to = Number(m[2]);
       if (from > LATEST) throw new Error('ERR_NO_CHAPTERS_IN_RANGE: No chapters found in range');
-      return new Blob([`${from},${Math.min(to, LATEST)}`]);
+      return { blob: new Blob([`${from},${Math.min(to, LATEST)}`]), partial: false };
     },
     runImport: async (a: { file: File }) => {
       const [f, t] = (await a.file.text()).split(',').map(Number);
@@ -64,7 +64,7 @@ it('read-as-it-arrives: position set after the FIRST batch, before the loop ends
   let posAfterFirst = false;
   await runChunkedCatchUp(c, {
     profileId: PROFILE,
-    runScrape: async ({ args }: { url: string; args: string }) => { const f = Number(args.match(/--from (\d+)/)![1]); if (f > 58) throw new Error('ERR_NO_CHAPTERS_IN_RANGE'); return new Blob([`${f},${f + 9}`]); },
+    runScrape: async ({ args }: { url: string; args: string }) => { const f = Number(args.match(/--from (\d+)/)![1]); if (f > 58) throw new Error('ERR_NO_CHAPTERS_IN_RANGE'); return { blob: new Blob([`${f},${f + 9}`]), partial: false }; },
     runImport: async (a: { file: File }) => { const [f, t] = (await a.file.text()).split(',').map(Number); for (let o = f; o <= t; o++) await mk(s.id, o); },
     onBatch: async () => { if (!posAfterFirst) posAfterFirst = (await getProgress(PROFILE, s.id))?.currentChapterId != null; },
   });
@@ -109,6 +109,33 @@ it('empty first batch (synced never arrives) → incomplete, no prune, not caugh
   expect(outcome).toBe('incomplete');
   expect(await orders(s.id)).toEqual([1, 30]); // NOT pruned
   expect((await db.series.get(s.id))?.caughtUp ?? false).toBe(false);
+});
+
+it('partial batch (rate limited): imports it, advances localMax, stops WITHOUT setting caughtUp (resumable)', async () => {
+  const s = await createSeries({ profileId: PROFILE, title: 'A', coverImageId: null, sourceUrl: URL_A });
+  for (const o of [1, 30]) await mk(s.id, o); // behind: local 1,30; synced 49
+  const calls: string[] = [];
+  // First batch (49..58) comes back PARTIAL: only 49..52 imported, then the loop must stop.
+  const outcome = await runChunkedCatchUp(
+    { sourceUrl: URL_A, syncedChapter: 49, syncedPage: 2, seriesId: s.id, maxOrder: 30, initial: true, state: 'behind' },
+    {
+      profileId: PROFILE,
+      runScrape: async ({ args }: { url: string; args: string }) => {
+        calls.push(args);
+        return { blob: new Blob(['49,52']), partial: true };
+      },
+      runImport: async (a: { file: File }) => {
+        const [f, t] = (await a.file.text()).split(',').map(Number);
+        for (let o = f; o <= t; o++) await mk(s.id, o);
+      },
+    },
+  );
+  expect(outcome).toBe('partial');
+  expect(calls).toEqual(['--from 49 --to 58']); // stopped after the one partial batch
+  expect(await orders(s.id)).toEqual([49, 50, 51, 52]); // imported + pruned below synced 49
+  const prog = await getProgress(PROFILE, s.id);
+  expect((await db.chapters.get(prog!.currentChapterId))?.order).toBe(49); // positioned at synced
+  expect((await db.series.get(s.id))?.caughtUp ?? false).toBe(false); // NOT caught up — resumable
 });
 
 it('non-initial update: starts at maxOrder+1, no prune, sets caughtUp, done', async () => {

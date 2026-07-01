@@ -1,5 +1,7 @@
 const BATCH_KEY = 'verreaux:downloadBatchSize';
-const DEFAULT_BATCH = 10;
+// Smaller batches are likelier to finish within a source's rate window, so a
+// batch salvages more before hitting a rate-limited partial.
+const DEFAULT_BATCH = 5;
 const MIN_BATCH = 1;
 const MAX_BATCH = 50;
 

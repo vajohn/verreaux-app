@@ -1,16 +1,17 @@
-import { runScrapeToBlob, type RunScrapeDeps } from './runScrapeToBlob';
+import { runScrapeToBlob, type RunScrapeDeps, type RunScrapeResult } from './runScrapeToBlob';
 import { postScrape, getRunStatus, getRunZip } from './piClient';
 import { getSyncCreds } from './syncCreds';
 
 /** A scrape-to-Blob runner shared by both orchestrations (add-from-url and
  *  update-from-source). Lives here so neither orchestrator has to import the
  *  other to get the live client+poller wiring. `onState` receives each polled
- *  run state for progress UI. */
+ *  run state for progress UI. Resolves `{ blob, partial }` — `partial` is true
+ *  for a rate-limited run that salvaged some chapters (resumable). */
 export type ScrapeRunner = (req: {
   url: string;
   args: string;
   otp: string;
-}) => Promise<Blob>;
+}) => Promise<RunScrapeResult>;
 
 function makeRunScrapeDeps(onState: (s: string) => void): RunScrapeDeps {
   return {
@@ -34,7 +35,7 @@ export function defaultRunScrape(onState: (s: string) => void): ScrapeRunner {
  *  Throws if the device is not enrolled. `onState` receives each polled state. */
 export function tokenRunScrape(
   onState: (s: string) => void,
-): (req: { url: string; args: string }) => Promise<Blob> {
+): (req: { url: string; args: string }) => Promise<RunScrapeResult> {
   return async (req) => {
     const creds = getSyncCreds();
     if (!creds) throw new Error('This device is not enrolled for sync.');
