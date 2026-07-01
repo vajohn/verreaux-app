@@ -9,6 +9,7 @@ import { getDownloadBatchSize, setDownloadBatchSize } from '../sync/chunking';
 import { enroll } from '../sync/syncClient';
 import { getSyncCreds, setSyncCreds, clearSyncCreds, isEnrolled } from '../sync/syncCreds';
 import { pullAndReconcile } from '../sync/positionSync';
+import { isPushSubscribed, subscribeToPush, unsubscribeFromPush } from '../sync/pushClient';
 import { runDownload, enqueueLiveDownloads } from '../sync/defaultCatchUp';
 import type { CatchUpCandidate } from '../sync/catchUp';
 import { useBackgroundStore } from '../background/background.store';
@@ -102,6 +103,11 @@ export function SettingsPanel() {
   // Mirror enabled state locally so toggles update immediately without re-fetching.
   const [enabledSourceIds, setEnabledSourceIds] = useState<Set<string>>(() => new Set());
 
+  const pushSupported = 'PushManager' in window;
+  const [pushSubscribed, setPushSubscribed] = useState<boolean>(false);
+  const [pushBusy, setPushBusy] = useState<boolean>(false);
+  const [pushError, setPushError] = useState<string>('');
+
   const handleEscape = useCallback(() => {
     if (debugOpen) { setDebugOpen(false); return; }
     if (optimizeOpen) { setOptimizeOpen(false); return; }
@@ -153,6 +159,10 @@ export function SettingsPanel() {
     }
     void loadSources();
     return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    void isPushSubscribed().then(setPushSubscribed);
   }, []);
 
   async function loadProfiles(): Promise<void> {
@@ -271,6 +281,24 @@ export function SettingsPanel() {
     setSyncAccountId('');
     setSyncError('');
     setSyncNowMsg('');
+  }
+
+  async function handlePushToggle(): Promise<void> {
+    setPushError('');
+    setPushBusy(true);
+    try {
+      if (pushSubscribed) {
+        await unsubscribeFromPush();
+        setPushSubscribed(false);
+      } else {
+        await subscribeToPush();
+        setPushSubscribed(true);
+      }
+    } catch (e) {
+      setPushError(e instanceof Error ? e.message : 'Push toggle failed.');
+    } finally {
+      setPushBusy(false);
+    }
   }
 
   return (
@@ -587,6 +615,43 @@ export function SettingsPanel() {
           );
         })
       )}
+
+      {/* Notifications */}
+      <div className="type-section-label settings-section">Notifications</div>
+      <div className="settings-row">
+        <div style={{ flex: 1 }}>
+          <span
+            className="type-body"
+            style={!pushSupported || !enrolled ? { opacity: 0.55 } : undefined}
+          >
+            Notify me about new series
+          </span>
+          {!pushSupported && (
+            <div className="type-nav-label" style={{ color: 'var(--color-text-muted)', marginTop: 2 }}>
+              Not supported on this browser.
+            </div>
+          )}
+          {pushSupported && !enrolled && (
+            <div className="type-nav-label" style={{ color: 'var(--color-text-muted)', marginTop: 2 }}>
+              Enrol this device in Device sync first.
+            </div>
+          )}
+          {pushError && (
+            <div className="type-nav-label" style={{ color: 'var(--color-gold)', marginTop: 4 }}>
+              {pushError}
+            </div>
+          )}
+        </div>
+        <button
+          className={`settings-toggle type-button${pushSupported && enrolled && pushSubscribed ? ' settings-toggle--on' : ''}`}
+          disabled={!pushSupported || !enrolled || pushBusy}
+          aria-pressed={pushSupported && enrolled && pushSubscribed}
+          style={!pushSupported || !enrolled ? { opacity: 0.45 } : undefined}
+          onClick={() => { void handlePushToggle(); }}
+        >
+          {pushBusy ? '…' : pushSubscribed && enrolled && pushSupported ? 'ON' : 'OFF'}
+        </button>
+      </div>
 
       {/* Export */}
       <div className="type-section-label settings-section">Export</div>
