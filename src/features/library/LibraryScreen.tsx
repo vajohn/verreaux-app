@@ -12,7 +12,9 @@ import { SettingsPanel } from './SettingsPanel';
 import { Button } from '../../ui/Button';
 import { useEscape } from '../../lib/useEscape';
 import { addFromUrl } from '../sync/addFromUrl';
-import { defaultRunScrape } from '../sync/defaultRunScrape';
+import { defaultRunScrape, tokenRunScrape } from '../sync/defaultRunScrape';
+import { validateAddFromUrlInput } from '../sync/addFromUrlInput';
+import { isEnrolled } from '../sync/syncCreds';
 import { startImport } from '../import/importController';
 import './LibraryScreen.css';
 
@@ -34,6 +36,9 @@ export function LibraryScreen() {
   // Optional chapter range; blank -> full series (--from 0 --to latest).
   const [addFromInput, setAddFromInput] = useState('');
   const [addToInput, setAddToInput] = useState('');
+  // Enrolled devices scrape via their device token — no OTP needed. Re-checked
+  // each time the sheet opens.
+  const addUrlEnrolled = useMemo(() => isEnrolled(), [addUrlSheet]);
 
   const handleEscape = useCallback(() => {
     if (addUrlSheet && !addUrlSubmitting) setAddUrlSheet(false);
@@ -41,33 +46,29 @@ export function LibraryScreen() {
   useEscape(handleEscape);
 
   async function handleAddFromUrl(): Promise<void> {
-    const url = addUrlInput.trim();
-    const otp = addOtpInput.trim();
-    if (!url) {
-      setAddUrlError('Enter a series URL.');
+    // Enrolled devices authorize the scrape with their device token, so they
+    // skip the OTP entirely (mirrors the update-from-source fast path in
+    // SeriesScreen). Non-enrolled devices still require the 6-digit code.
+    const enrolled = isEnrolled();
+    const result = validateAddFromUrlInput({
+      url: addUrlInput,
+      otp: addOtpInput,
+      from: addFromInput,
+      to: addToInput,
+      enrolled,
+    });
+    if (!result.ok) {
+      setAddUrlError(result.error);
       return;
     }
-    if (!/^\d{6}$/.test(otp)) {
-      setAddUrlError('Enter the 6-digit authenticator code.');
-      return;
-    }
-    const from = addFromInput.trim();
-    const to = addToInput.trim();
-    if (from && !/^\d+$/.test(from)) {
-      setAddUrlError('"From" must be a chapter number, or leave it blank for the start.');
-      return;
-    }
-    if (to && to !== 'latest' && !/^\d+$/.test(to)) {
-      setAddUrlError('"To" must be a number or "latest", or leave it blank.');
-      return;
-    }
+    const { url, otp, from, to } = result;
     setAddUrlSubmitting(true);
     setAddUrlError('');
     try {
       await addFromUrl(
         { url, otp, from, to },
         {
-          runScrape: defaultRunScrape(() => {}),
+          runScrape: enrolled ? tokenRunScrape(() => {}) : defaultRunScrape(() => {}),
           startImport,
           activeProfileId: profileId,
         },
@@ -244,17 +245,19 @@ export function LibraryScreen() {
             <div className="type-body" style={{ opacity: 0.7, fontSize: '0.85em' }}>
               Leave the range blank to fetch the whole series.
             </div>
-            <input
-              className="series-title-input type-body"
-              type="text"
-              inputMode="numeric"
-              maxLength={6}
-              placeholder="6-digit code"
-              value={addOtpInput}
-              onChange={(e) => setAddOtpInput(e.target.value.replace(/\D/g, '').slice(0, 6))}
-              onKeyDown={(e) => { if (e.key === 'Enter') { void handleAddFromUrl(); } }}
-              disabled={addUrlSubmitting}
-            />
+            {!addUrlEnrolled && (
+              <input
+                className="series-title-input type-body"
+                type="text"
+                inputMode="numeric"
+                maxLength={6}
+                placeholder="6-digit code"
+                value={addOtpInput}
+                onChange={(e) => setAddOtpInput(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                onKeyDown={(e) => { if (e.key === 'Enter') { void handleAddFromUrl(); } }}
+                disabled={addUrlSubmitting}
+              />
+            )}
             {addUrlError && (
               <div className="type-body" style={{ color: 'var(--color-gold)' }}>
                 {addUrlError}
