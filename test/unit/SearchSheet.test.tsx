@@ -20,6 +20,7 @@ describe("SearchSheet", () => {
     vi.spyOn(pi, "searchSeries").mockResolvedValue({ results: [{ adapterId: "asurascans", title: "The Hero", seriesUrl: "https://asurascans.com/series/x", coverUrl: null }], errors: [] });
     const onSelect = vi.fn();
     render(<SearchSheet onClose={() => {}} onSelect={onSelect} />);
+    fireEvent.change(screen.getByPlaceholderText(/search/i), { target: { value: "hero" } });
     fireEvent.click(screen.getByRole("button", { name: /^search$/i }));
     const hit = await screen.findByText("The Hero");
     fireEvent.click(hit);

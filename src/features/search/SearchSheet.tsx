@@ -79,7 +79,7 @@ export function SearchSheet({ onClose, onSelect }: SearchSheetProps) {
           />
           <Button
             onClick={() => void handleSearch()}
-            disabled={loading}
+            disabled={loading || query.trim().length < 2}
           >
             {loading ? 'Searching…' : 'Search'}
           </Button>
