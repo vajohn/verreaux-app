@@ -5,6 +5,7 @@ import { walkLibrary, walkChapterUpdate, type SeriesEntry, type ChapterEntry } f
 import { normalizeTitle, restoreLastReadFromOrder } from '../../db/repos/series.repo';
 import type { ImportType } from './typeDetector';
 import type { LogEntry } from '../../db/types';
+import { registerNewSeries } from '../sync/positionSync';
 
 export type WorkerOutMessage =
   | { type: 'QUOTA_WARNING'; estimatedBytes: number; availableBytes: number }
@@ -262,6 +263,15 @@ async function importSeries(
       return newId;
     },
   );
+
+  // Notify other devices that a brand-new series was added.  Only fires when
+  // this import CREATED a new series row (existing === undefined/null) and the
+  // ZIP carried a sourceUrl — never on merge (regression-safe: pushing (0,0)
+  // for a series with a real position would regress that position on other
+  // devices, so we guard strictly on the create branch).
+  if (!existing && sourceUrl) {
+    registerNewSeries(sourceUrl);
+  }
 
   // Release the cover reference now that it's persisted.
   coverBlob = null;

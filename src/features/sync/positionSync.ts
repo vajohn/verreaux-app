@@ -1,5 +1,5 @@
 import { db } from '../../db/db';
-import { getSyncCreds, clearSyncCreds } from './syncCreds';
+import { getSyncCreds, clearSyncCreds, isEnrolled } from './syncCreds';
 import { putPosition, getPositions, SyncAuthError } from './syncClient';
 import { createPushQueue } from './pushQueue';
 import { reconcilePositions } from './reconcile';
@@ -45,6 +45,17 @@ export async function notifyProgress(
 /** Flush pending pushes (call on visibility/pagehide). */
 export function flushSync(): Promise<void> {
   return queue.flush();
+}
+
+/** Register a NEWLY-CREATED series with the account so other devices get a
+ *  Web Push + can catch up. Enqueues an initial position (chapter 0, page 0).
+ *  No-op if not enrolled. MUST only be called when the import CREATED a new
+ *  series locally — never on re-import/merge — because mergePosition honors a
+ *  regression from the owning device, so pushing (0,0) for a series this device
+ *  already has a real position on would REGRESS that position. */
+export function registerNewSeries(sourceUrl: string): void {
+  if (!sourceUrl || !isEnrolled()) return;
+  queue.enqueue({ sourceUrl, chapterOrder: 0, pageIndex: 0, manuallyMarked: false });
 }
 
 /** Pull + reconcile for a profile, returning catch-up candidates (series this
